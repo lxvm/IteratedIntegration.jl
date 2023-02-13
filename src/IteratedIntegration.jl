@@ -26,7 +26,7 @@ export iterated_integration # the main routine
 export iterated_tol_update, iterated_segs, iterated_inference, iterated_integral_type
 include("iterated_integration.jl")
 
-export AbstractIteratedIntegrand, limits, quad_integrand, quad_routine, quad_args, quad_kwargs
+export AbstractIntegrator, limits, quad_integrand, quad_routine, quad_args, quad_kwargs
 export IteratedIntegrator
 include("iterated_integrator.jl")
 
