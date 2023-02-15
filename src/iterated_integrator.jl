@@ -7,10 +7,10 @@ abstract type AbstractIntegrator{F} <: Function end
 
 # interface
 
-function limits end # return the limits object(s) used by the routine
+function quad_limits end # return the limits object(s) used by the routine
 function quad_integrand end # return the integrand used by the quadrature routine, optionally with arguments
 quad_routine(f::AbstractIntegrator) = f.routine # integration routine
-quad_args(f::AbstractIntegrator, ps...) = (quad_integrand(f, ps...), limits(f)...) # integration routine arguments
+quad_args(f::AbstractIntegrator, ps...) = (quad_integrand(f, ps...), quad_limits(f)...) # integration routine arguments
 quad_kwargs(f::AbstractIntegrator; kwargs...) = (; f.kwargs..., kwargs...) # keyword arguments to routine
 
 # abstract methods
@@ -38,9 +38,10 @@ function IteratedIntegrator(f::F, l, p...; ps=0.0, routine=iterated_integration,
     IteratedIntegrator(f, l, p, routine, quad_kwargs(routine, test, l; kwargs...))
 end
 
-limits(f::IteratedIntegrator) = (f.l,)
 IteratedIntegrator{F}(args...; kwargs...) where {F<:Function} =
     IteratedIntegrator(F.instance, args...; kwargs...)
+
+quad_limits(f::IteratedIntegrator) = (f.l,)
 
 # default arguments
 
@@ -69,5 +70,5 @@ function quad_kwargs(::typeof(quadgk), f, segs::T...;
     segbuf_ = segbuf === nothing ? alloc_segbuf(T, F, Base.promote_op(norm, F)) : segbuf
     (rtol=rtol, atol=atol, order=order, maxevals=maxevals, norm=norm, segbuf=segbuf_)
 end
-quad_kwargs(::typeof(iterated_integration), f, l::AbstractLimits; kwargs...) =
+quad_kwargs(::typeof(iterated_integration), f, l; kwargs...) =
     iterated_integration_kwargs(f, l; kwargs...)
