@@ -12,25 +12,25 @@ iterated_tol_update(f, l, atol, rtol, dim) = (atol, rtol)
 Returns a tuple of the return types of f after each variable of integration
 """
 function iterated_inference(f, ::AbstractLimits{d,T}) where {d,T}
-    Fs = iterated_inference_down(typeof(f), T, Val{d}()) # type of inner integrand
-    iterated_inference_up(Fs, T, Val{d}())
+    Fs = iterated_inference_down(typeof(f), T, Val(d)) # type of inner integrand
+    iterated_inference_up(Fs, T, Val(d))
 end
 
 function iterated_inference_down(F, T, ::Val{d}) where d
     # recurse down to the innermost integral to get the integrand function types
-    Finner = Base.promote_op(iterated_pre_eval, F, T, Type{Val{d}})
-    (iterated_inference_down(Finner, T, Val{d-1}())..., F)
+    Finner = Base.promote_op(iterated_pre_eval, F, T, Val{d})
+    (iterated_inference_down(Finner, T, Val(d-1))..., F)
 end
 iterated_inference_down(F, T, ::Val{1}) = (F,)
 
 function iterated_inference_up(Fs::NTuple{d_}, T, dim::Val{d}) where {d_,d}
     # go up the call stack and get the integrand result types
-    Fouter = Base.promote_op(iterated_integrand, Fs[1], T, Type{Val{d-d_+1}}) # output type
+    Fouter = Base.promote_op(iterated_integrand, Fs[1], T, Val{d-d_+1}) # output type
     Fouter === Union{} && error("Could not infer the output type of the integrand. Check that it runs and is type stable")
     (Fouter, iterated_inference_up(Fs[2:d_], Fouter, dim)...)
 end
 iterated_inference_up(Fs::NTuple{1}, T, ::Val{d}) where d =
-    (Base.promote_op(iterated_integrand, Fs[1], T, Type{Val{d}}),)
+    (Base.promote_op(iterated_integrand, Fs[1], T, Val{d}),)
 
 """
     iterated_integral_type(f, l)
@@ -39,7 +39,7 @@ Returns the output type of an iterated integral of `f` over domain `l`
 """
 function iterated_integral_type(f, l::AbstractLimits{d}) where d
     T = iterated_inference(f, l)[d]
-    Base.promote_op(iterated_integrand, typeof(f), T, Type{Val{0}})
+    Base.promote_op(iterated_integrand, typeof(f), T, Val{0})
 end
 
 """
@@ -53,7 +53,7 @@ function can also help avoid errors when `QuadGK` fails to adapt.
 function iterated_segs(_, l::AbstractLimits, ::Val{initdivs}) where initdivs
     a, b = endpoints(l)
     r = range(a, b, length=initdivs+1)
-    ntuple(i -> r[i], Val{initdivs+1}())
+    ntuple(i -> r[i], Val(initdivs+1))
 end
 
 """
@@ -96,7 +96,7 @@ iterated_integration(f, a, b; kwargs...) =
 iterated_integration(f, l::AbstractLimits{d,T}; kwargs...) where {d,T} =
     iterated_integration(ThunkIntegrand{d}(f), l; kwargs...)
 iterated_integration(f::AbstractIteratedIntegrand{d}, l::AbstractLimits{d}; kwargs...) where d =
-    iterated_integration_(Val{d}, f, l, iterated_integration_kwargs(f, l; kwargs...)...)
+    iterated_integration_(Val(d), f, l, iterated_integration_kwargs(f, l; kwargs...)...)
 function iterated_integration_kwargs(f, l::AbstractLimits{d}; order=7, atol=nothing, rtol=nothing, norm=norm, maxevals=10^7, initdivs=ntuple(i -> Val(1), Val{d}()), segbufs=nothing) where d
     segbufs_ = segbufs === nothing ? alloc_segbufs(f, l) : segbufs
     atol_ = something(atol, zero(coefficient_type(l)))
@@ -104,12 +104,12 @@ function iterated_integration_kwargs(f, l::AbstractLimits{d}; order=7, atol=noth
     (order=order, atol=atol_, rtol=rtol_, maxevals=maxevals, norm=norm, initdivs=initdivs, segbufs=segbufs_)
 end
 
-function iterated_integration_(::Type{Val{1}}, f::F, l::L, order, atol, rtol, maxevals, norm::N, initdivs, segbufs) where {F,L,N}
+function iterated_integration_(::Val{1}, f::F, l::L, order, atol, rtol, maxevals, norm::N, initdivs, segbufs) where {F,L,N}
     # see notes on plain quadgk below
     # quadgk(f, iterated_segs(f, l, initdivs[1])...; order=order, atol=atol, rtol=rtol, maxevals=maxevals, norm=norm, segbuf=segbufs[1])
     do_quadgk(f, iterated_segs(f, l, initdivs[1]), order, atol, rtol, maxevals, norm, segbufs[1])
 end
-function iterated_integration_(::Type{Val{d}}, f::F, l::L, order, atol, rtol, maxevals, norm::N, initdivs, segbufs) where {d,F,L,N}
+function iterated_integration_(::Val{d}, f::F, l::L, order, atol, rtol, maxevals, norm::N, initdivs, segbufs) where {d,F,L,N}
     # using plain quadgk (below) doesn't work so well because of the anonymous
     # function in the handle_infinities routine. The inference problem can be
     # fixed but it makes precompilation incredibly tedious. see the `alloc`
@@ -121,7 +121,7 @@ function iterated_integration_(::Type{Val{d}}, f::F, l::L, order, atol, rtol, ma
     # avoid runtime dispatch when capturing variables
     # https://docs.julialang.org/en/v1/manual/performance-tips/#man-performance-captured
     f_ = let f=f, l=l, order=order, (atol, rtol)=iterated_tol_update(f, l, atol, rtol, d), maxevals=maxevals, norm=norm, initdivs=initdivs, segbufs=segbufs
-        x -> iterated_integrand(f, first(iterated_integration_(Val{d-1}, iterated_pre_eval(f, x, Val{d}), fixandeliminate(l, x), order, atol, rtol, maxevals, norm, initdivs, segbufs)), Val{d})
+        x -> iterated_integrand(f, first(iterated_integration_(Val(d-1), iterated_pre_eval(f, x, Val(d)), fixandeliminate(l, x), order, atol, rtol, maxevals, norm, initdivs, segbufs)), Val(d))
     end
     do_quadgk(f_, iterated_segs(f, l, initdivs[d]), order, atol, rtol, maxevals, norm, segbufs[d])
 end

@@ -21,7 +21,7 @@ quad_kwargs(f::AbstractIntegrator; kwargs...) = (; f.kwargs..., kwargs...) # key
 # implementations
 
 """
-    IteratedIntegrator(f, l, p...; ps=0.0, routine=iterated_integration, args=(), kwargs=(;))
+    IteratedIntegrator(f, l, p...; ps=(), routine=iterated_integration, args=(), kwargs=(;))
 
 !!! warning "Experimental"
     Intended to integrate all kinds of [`AbstractIteratedIntegrand`](@ref)
@@ -33,7 +33,7 @@ struct IteratedIntegrator{F<:AbstractIteratedIntegrand,L<:AbstractLimits,P<:Tupl
     routine::R
     kwargs::K
 end
-function IteratedIntegrator(f::F, l, p...; ps=0.0, routine=iterated_integration, kwargs...) where F
+function IteratedIntegrator(f::F, l, p...; ps=(), routine=iterated_integration, kwargs...) where F
     test = IteratedIntegrand{F}(p..., ps...)
     IteratedIntegrator(f, l, p, routine, quad_kwargs(routine, test, l; kwargs...))
 end
