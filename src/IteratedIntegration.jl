@@ -1,6 +1,11 @@
 """
 A package for iterated adaptive integration (IAI) based on
 [`QuadGK.jl`](https://github.com/JuliaMath/QuadGK.jl).
+Its main exports are [`iterated_integration`](@ref), a routine which performs
+multidimensional adaptive integration with nested `quadgk` calls,
+[`IteratedIntegrator`](@ref), which provides a functor interface to evaluate
+integrals, and the [`AbstractLimits`](@ref) abstraction to evaluate
+parametrizations of limits of integration.
 """
 module IteratedIntegration
 
@@ -12,22 +17,19 @@ using QuadGK: quadgk, do_quadgk, alloc_segbuf
 using Polyhedra: Polyhedron, VRepresentation, vrep, points, fulldim, hasallrays
 
 import IntervalSets: endpoints
-import Polyhedra: fixandeliminate, coefficient_type
+import Polyhedra: fixandeliminate
 
-export AbstractLimits, endpoints, fixandeliminate, coefficient_type
+export AbstractIteratedLimits, AbstractIteratedIntegrand
+export iterated_pre_eval, iterated_integrand
+include("definitions.jl")
+
 export CubicLimits, TetrahedralLimits, PolyhedralLimits, ProductLimits, TranslatedLimits
 include("iterated_limits.jl")
 
-export AbstractIteratedIntegrand, nvars, iterated_pre_eval, iterated_integrand
-export ThunkIntegrand, AssociativeOpIntegrand#, IteratedIntegrand # in progress
+export ThunkIntegrand, IteratedIntegrand
 include("iterated_integrands.jl")
 
 export iterated_integration # the main routine
-export iterated_tol_update, iterated_segs, iterated_inference, iterated_integral_type
 include("iterated_integration.jl")
-
-export AbstractIntegrator, quad_limits, quad_integrand, quad_routine, quad_args, quad_kwargs
-export IteratedIntegrator
-include("iterated_integrator.jl")
 
 end

@@ -1,12 +1,10 @@
 using Test
 
-using StaticArrays
-
 using IteratedIntegration
 
 @testset "IteratedIntegration" begin
-    
-    @testset "AbstractLimits" begin
+    # TODO: check that endpoints & fixandeliminate work, and that volume integrates correctly
+    @testset "AbstractIteratedLimits" begin
 
         @testset "CubicLimits" begin
             
@@ -33,34 +31,27 @@ using IteratedIntegration
     @testset "AbstractIteratedIntegrand" begin
         
         @testset "ThunkIntegrand" begin
-            
+            n = 5
+            f = ThunkIntegrand{n}(sum)
+            @test f(1:n) == +((1:n)...)
         end
 
-        @testset "AssociativeOpIntegrand" begin
-            # test single variable
-            f1 = AssociativeOpIntegrand(+, cos, sin)
-            int, = iterated_integration(f1, 0, 2)
-            @test int ≈ iterated_integration(sin∘only, 0, 2)[1] + iterated_integration(cos∘only, 0, 2)[1]
-            # test multi variable
-            # f2 = AssociativeOpIntegrand(+, cos, ThunkIntegrand{1}(sin))
-            # int, = iterated_integration(f1, 0, 2)
-
-        end
-        #=
         @testset "IteratedIntegrand" begin
-            
+            n = 5
+            f = IteratedIntegrand(sum, ntuple(_->identity, n-1)...)
+            @test f(1:n) == +((1:n)...)
         end
-        =#
     end
 
     @testset "iterated_integration" begin
         n = 5
-        @test iterated_integration(x -> x .^ (1:5), zeros(SVector{n}), ones(SVector{n}))[1] ≈ [1/(i+1) for i in 1:n]
+        f = x -> x .^ (1:n)
+        a = zeros(n)
+        b = ones(n)
+        @test iterated_integration(f, a, b)[1] ≈ [1/(i+1) for i in 1:n]
+
+        f = IteratedIntegrand(f, ntuple(_->identity, n-1)...)
+        @test iterated_integration(f, a, b)[1] ≈ [1/(i+1) for i in 1:n]
     end
 
-    #=
-    @testset "IteratedIntegrator" begin
-        
-    end
-    =#
 end
