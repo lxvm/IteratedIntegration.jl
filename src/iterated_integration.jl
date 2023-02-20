@@ -182,10 +182,8 @@ function do_iai(f::F, l::L, n, ::Val{N}, atol, rtol, maxevals, nrm, segbuf) wher
 end
 
 # internal routine to perform the h-adaptive refinement of the multi-dimensional integration segments (segs)
-# the main difference in error estimation is that nested_quadgk is a depth-first
-# approach whereas here we try to employ breadth-first (although refining an
-# integral in an inner dimension updates the outer dimensions and this needs to
-# be taken into account)
+# for now the goal is to replicate nested_quadgk, but modifications such as
+# breadth-first search would be interesting
 function adaptpanel!(segs::Vector{T}, ::Val{d}, f::F, l::L, I, E, numevals, x,w,gw,n, atol, rtol, maxevals, nrm, ::Val{N}) where {T,d,F,L,N}
     # Pop the biggest-error segment and subdivide (h-adaptation)
     # until convergence is achieved or maxevals is exceeded.
@@ -194,47 +192,36 @@ function adaptpanel!(segs::Vector{T}, ::Val{d}, f::F, l::L, I, E, numevals, x,w,
             @warn "maxevals exceeded"
             break
         end
-        # d > 1 && @show length(segs)
 
         s = heappop!(segs, Reverse)
-        # d > 1 && @show length(segs) E
 
         if d > 1
-            # @show "haha"
             # adapt in the inner integral
             sI, sE, numevals = resolvepanel!(s, Val(d), f, l, s.I, s.E, numevals, x,w,gw,n, atol, rtol, maxevals, nrm, Val(N))
-            # @show E sE s.E
             E = (E - s.E) + sE
-            # @show I sI s.I
             I = (I - s.I) + sI
-            # return
+            
             heappush!(segs, Panel(s.a, s.b, sI, sE, s.n), Reverse)
             s = heappop!(segs, Reverse)
+            tol = max(atol, rtol * nrm(I))
         end
-        # d > 1 && @show I E
-        # nested quadgk first does resolvepanel! and then the adaptive step
-        # this is what I think it means to do breadth first search
-        tol = max(atol, rtol * nrm(I))
+
         if d == 1 || E > tol
-            # d > 1 && @show "jeje"
-            # adapt in the current integral a la quadgk
+            # adapt in the current integral
             mid = (s.a + s.b) / 2
             s1 = evalpanel(Val(d), f, l, s.a, mid, x,w,gw, nrm, Val(N))
             s2 = evalpanel(Val(d), f, l, mid, s.b, x,w,gw, nrm, Val(N))
-            # d > 1 && @show E s.E
             I = (I - s.I) + s1.I + s2.I
             E = (E - s.E) + s1.E + s2.E
-            # d > 1 && @show E
             numevals += 2*(2n+1)^d
-            # d > 1 && @show length(segs)
+
             heappush!(segs, s1, Reverse)
             heappush!(segs, s2, Reverse)
-            # d > 1 && @show length(segs)
+        elseif d > 1
+            heappush!(segs, s, Reverse)
         end
-        # d > 1 && @show I E tol
-
     end
-    # @show numevals
+
     # re-sum (paranoia about accumulated roundoff)
     I = segs[1].I
     E = segs[1].E
@@ -247,34 +234,21 @@ end
 
 # internal routine to raise the accuracy of the nodes in a panel
 function resolvepanel!(p::Panel, ::Val{d}, f::F, l::L, I, E, numevals, x,w,gw,n, atol, rtol, maxevals, nrm, ::Val{N}) where {d,F,L,N}
-    # @show length(p.n)
-    Ik = p.n[1].w * p.n[1].v
-    Ig = p.n[1].g * p.n[1].v
-    for i in 2:length(p.n)
-        Ik += p.n[i].w * p.n[i].v
-        Ig += p.n[i].g * p.n[i].v
-    end
-    @assert Ik ≈ I "$I $Ik"
-    @assert E ≈ nrm(Ik - Ig)
-
     for (i,node) in enumerate(p.n)
         if true # E > max(atol, rtol*nrm(I)) # nested quadgk always goes
             g = iterated_pre_eval(f, node.x, Val(d))
             m = fixandeliminate(l, node.x)
             heapify!(node.p, Reverse)
             pI, pE, numevals = adaptpanel!(node.p, Val(d-1), g, m, node.v, sum(n -> n.E, node.p), numevals, x,w,gw,n, atol, rtol, maxevals, nrm, Val(N))
-            I = (I - node.w*node.v) + node.w*pI
+            # I = (I - node.w*node.v) + node.w*pI
             # E = (E - sum(p -> p.E, node.p)) + pE
             p.n[i] = Node(pI, node.x, node.w, node.g, node.p)
-            # @show nevals
             if numevals > maxevals
                 @warn "maxevals exceeded"
                 break
             end
-            # @show i
         end
     end
-    # @show numevals
     # compute Ik, Ig for this panel
     Ik = p.n[1].w * p.n[1].v
     Ig = p.n[1].g * p.n[1].v
