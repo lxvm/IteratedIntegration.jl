@@ -13,9 +13,11 @@ using LinearAlgebra
 
 using StaticArrays
 
-using QuadGK: quadgk, do_quadgk, alloc_segbuf
+using DataStructures: heapify!, heappop!, heappush!
+using QuadGK: quadgk, do_quadgk, alloc_segbuf, cachedrule, evalrule, Segment
 using Polyhedra: Polyhedron, VRepresentation, vrep, points, fulldim, hasallrays
 
+import Base.Order.Reverse
 import IntervalSets: endpoints
 import Polyhedra: fixandeliminate
 
@@ -28,6 +30,9 @@ include("iterated_limits.jl")
 
 export ThunkIntegrand, IteratedIntegrand
 include("iterated_integrands.jl")
+
+export nested_quadgk
+include("nested_quadgk.jl")
 
 export iterated_integration # the main routine
 include("iterated_integration.jl")

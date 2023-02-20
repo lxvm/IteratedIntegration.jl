@@ -1,149 +1,279 @@
-"""
-    iterated_tol_update(f, l, atol, rtol)
-
-Choose a new set of error tolerances for the next inner integral. By default
-returns `(atol, rtol)` unchanged.
-"""
-iterated_tol_update(f, l, atol, rtol, dim) = (atol, rtol)
-
-"""
-    iterated_inference(F, T, ::Val{d}) where d
-    iterated_inference(f, l::AbstractIteratedLimits)
-
-Returns a tuple of the return types of f after each variable of integration
-"""
-iterated_inference(F, T, ::Val{d}) where d =
-    iterated_inference_up(iterated_inference_down(F, T, Val(d)), T, Val(d))
-iterated_inference(f, l) =
-    iterated_inference(typeof(f), eltype(l), Val(ndims(l)))
-
-
-function iterated_inference_down(F, T, ::Val{d}) where d
-    # recurse down to the innermost integral to get the integrand function types
-    Finner = Base.promote_op(iterated_pre_eval, F, T, Val{d})
-    (iterated_inference_down(Finner, T, Val(d-1))..., F)
+struct Panel{TX,TI,TE<:Real,TN}
+    a::TX
+    b::TX
+    I::TI
+    E::TE
+    n::TN
+    Panel(a::TX,b::TX,I::TI,E::TE,n::TN) where {TX,TI,TE,TN} =
+        new{TX,TI,TE,TN}(a,b,I,E,n)
 end
-iterated_inference_down(F, T, ::Val{1}) = (F,)
+Base.isless(i::Panel, j::Panel) = isless(i.E, j.E)
 
-function iterated_inference_up(Fs::NTuple{d_}, T, dim::Val{d}) where {d_,d}
-    # go up the call stack and get the integrand result types
-    Fouter = Base.promote_op(iterated_integrand, Fs[1], T, Val{d-d_+1}) # output type
-    Fouter === Union{} && error("Could not infer the output type of the integrand. Check that it runs and is type stable")
-    (Fouter, iterated_inference_up(Fs[2:d_], Fouter, dim)...)
-end
-iterated_inference_up(Fs::NTuple{1}, T, ::Val{d}) where d =
-    (Base.promote_op(iterated_integrand, Fs[1], T, Val{d}),)
 
-"""
-    iterated_integral_type(f, l::AbstractIteratedLimits)
-
-Returns the output type of `iterated_integration(f, l)`
-"""
-function iterated_integral_type(f, l)
-    T = iterated_inference(f, l)[ndims(l)]
-    Tuple{T,Base.promote_op(norm, T)}
+struct Node{TV,TX,TP}
+    v::TV
+    x::TX
+    w::TX
+    g::TX
+    p::TP
+    Node(v::TV,x::TX,w::TX,g::TX,p::TP) where {TV,TX,TP} =
+        new{TV,TX,TP}(v,x,w,g,p)
 end
 
-"""
-    iterated_segs(f, l::AbstractIteratedLimits, ::Val{initdivs}) where initdivs
-
-Returns a `Tuple` of integration nodes that are passed to `QuadGK` to initialize
-the segments for adaptive integration. By default, returns `initdivs` equally
-spaced panels on `endpoints(l)`. If `f` is localized, specializing this
-function can also help avoid errors when `QuadGK` fails to adapt.
-"""
-function iterated_segs(_, l, ::Val{initdivs}) where initdivs
-    a, b = endpoints(l)
-    r = range(a, b, length=initdivs+1)
-    ntuple(i -> r[i], Val(initdivs+1))
+evalnode(::Val{1}, f, _, xn, wn, gwn, _, _, _, _, ::Val) = Node(f(xn), xn, wn, gwn, nothing)
+function evalnode(::Val{d}, f, l, xn, wn, gwn, x,w,gw,nrm, ::Val{N}) where {d,N}
+    g = iterated_pre_eval(f, xn, Val(d))
+    m = fixandeliminate(l, xn)
+    s = iterated_segs(g, m, Val(N))
+    segs = ntuple(n -> evalpanel(Val(d-1), g, m, s[n], s[n+1], x,w,gw, nrm, Val(N)), Val(N))
+    Node(sum(s -> s.I, segs), xn, wn, gwn, collect(segs))
 end
 
+function evalpanel(f::F, l::L, ::Val{N}=Val(1); order=7, norm=norm) where {F,L,N}
+    # this function is just for testing
+    x,w,gw = cachedrule(eltype(L),order)
+    a,b = endpoints(l)
+    evalpanel(f, l,a,b, x,w,gw, norm, Val(N))
+end
+evalpanel(f::F, l::L, a, b, x,w,gw, nrm, ::Val{N}) where {F,L,N} =
+    evalpanel(Val(ndims(l)), f, l,a,b, x,w,gw, nrm, Val(N))
+function evalpanel(::Val{d}, f::F, l::L, a, b, x,w,gw, nrm, ::Val{N}) where {d,F,L,N}
+    p = 2*length(x)-1
+    T = Base.promote_op(evalnode, Val{d}, F, L, eltype(x),eltype(w),eltype(gw), typeof(x),typeof(w),typeof(gw),typeof(nrm), Val{N})
+    node = Vector{T}(undef, p)
+    # Ik and Ig are integrals via Kronrod and Gauss rules, respectively
+    s = convert(eltype(x), 0.5) * (b-a)
+    n1 = 1 - (length(x) & 1) # 0 if even order, 1 if odd order
+    # unroll first iteration of loop to get correct type of Ik and Ig
+    node[2] = fg1 = evalnode(Val(d), f, l, a + (1+x[2])*s, w[2], gw[1], x, w, gw, nrm, Val(N))
+    # node[2] = fg1 = f(a + (1+x[2])*s, w[2], gw[1])
+    node[p-1] = fg2 = evalnode(Val(d), f, l, a + (1-x[2])*s, w[2], gw[1], x, w, gw, nrm, Val(N))
+    # node[p-1] = fg2 = f(a + (1-x[2])*s, w[2], gw[1])
+    fg = fg1.v + fg2.v
+    node[1] = fk1 = evalnode(Val(d), f, l, a + (1+x[1])*s, w[1], zero(gw[1]), x, w, gw, nrm, Val(N))
+    # node[1] = fk1 = f(a + (1+x[1])*s, w[1], zero(gw[1]))
+    node[p] = fk2 = evalnode(Val(d), f, l, a + (1-x[1])*s, w[1], zero(gw[1]), x, w, gw, nrm, Val(N))
+    # node[p] = fk2 = f(a + (1-x[1])*s, w[1], zero(gw[1]))
+    fk = fk1.v + fk2.v
+    Ig = fg * gw[1]
+    Ik = fg * w[2] + fk * w[1]
+    for i = 2:length(gw)-n1
+        node[2i] = fg1 = evalnode(Val(d), f, l, a + (1+x[2i])*s, w[2i], gw[i], x, w, gw, nrm, Val(N))
+        # node[2i] = fg1 = f(a + (1+x[2i])*s, w[2i], gw[i])
+        node[p-2i+1] = fg2 = evalnode(Val(d), f, l, a + (1-x[2i])*s, w[2i], gw[i], x, w, gw, nrm, Val(N))
+        # node[p-2i+1] = fg2 = f(a + (1-x[2i])*s, w[2i], gw[i])
+        fg = fg1.v + fg2.v
+        node[2i-1] = fk1 = evalnode(Val(d), f, l, a + (1+x[2i-1])*s, w[2i-1], zero(gw[i]), x, w, gw, nrm, Val(N))
+        # node[2i-1] = fk1 = f(a + (1+x[2i-1])*s, w[2i-1], zero(gw[i]))
+        node[p-2i+2] = fk2 = evalnode(Val(d), f, l, a + (1-x[2i-1])*s, w[2i-1], zero(gw[i]), x, w, gw, nrm, Val(N))
+        # node[p-2i+2] = fk2 = f(a + (1-x[2i-1])*s, w[2i-1], zero(gw[i]))
+        fk = fk1.v + fk2.v
+        Ig += fg * gw[i]
+        Ik += fg * w[2i] + fk * w[2i-1]
+    end
+    c = div(p,2)
+    if n1 == 0 # even: Gauss rule does not include x == 0
+        node[c+1] = fk0 = evalnode(Val(d), f, l, a + s, w[end], zero(w[end]), x, w, gw, nrm, Val(N))
+        # node[c+1] = fk0 = f(a + s, w[end], zero(w[end]))
+        fk = fk0.v
+        Ik += fk * w[end]
+    else # odd: don't count x==0 twice in Gauss rule
+        node[c+1] = fg0 = evalnode(Val(d), f, l, a + s, w[end], gw[end], x, w, gw, nrm, Val(N))
+        # node[c+1] = fg0 = f(a + s, w[end], gw[end])
+        fg = fg0.v
+        Ig += fg * gw[end]
+        node[c] = fk1 = evalnode(Val(d), f, l, a + (1+x[end-1])*s, w[end-1], zero(gw[end]), x, w, gw, nrm, Val(N))
+        # node[c] = fk1 = f(a + (1+x[end-1])*s, w[end-1], zero(gw[end]))
+        node[c+2] = fk2 = evalnode(Val(d), f, l, a + (1-x[end-1])*s, w[end-1], zero(gw[end]), x, w, gw, nrm, Val(N))
+        # node[c+2] = fk2 = f(a + (1-x[end-1])*s, w[end-1], zero(gw[end]))
+        fk = fk1.v + fk2.v
+        Ik += fg * w[end] + fk * w[end-1]
+    end
+    Ik_s, Ig_s = Ik * s, Ig * s # new variable since this may change the type
+    E = nrm(Ik_s - Ig_s)
+    if isnan(E) || isinf(E)
+        throw(DomainError(a+s, "integrand produced $E in the interval ($a, $b)"))
+    end
+    return Panel(oftype(s, a), oftype(s, b), Ik_s, E, node)
+end
+
+# get the max error at all levels of tree
+function tree_err(seg::Panel)
+    E = seg.E
+    if seg.n isa Vector{<:Node{<:Any,<:Any,Nothing}}
+        (E,)
+    else
+        (p0, rest) = Iterators.peel(seg.p)
+        err = nderr(p0)
+        for p in rest
+            err = map(max, err, nderr(p))
+        end
+        (err..., seg.E)
+    end
+end
+
+function nodedump(n::Node)
+    if isnothing(n.p)
+        (f=[n.v], x=[(n.x,)], w=[n.w], gw=[n.g])
+    else
+        data = map(paneldump, n.p) # grouped by panel
+        (;
+        f = vcat(map(d -> d.f, data)...),
+        x = vcat(map(d -> map(xs -> (xs..., n.x), d.x), data)...),
+        w = vcat(map(d -> n.w * d.w, data)...),
+        gw = vcat(map(d -> n.g * d.gw, data)...),
+        )
+    end
+end
+
+function paneldump(p::Panel)
+    data = map(nodedump, p.n)
+    map(s -> vcat(map(d -> getfield(d, s), data)...), (f=:f, x=:x, w=:w, gw=:gw))
+end
+function paneldump(p::Vector{<:Panel})
+    data = map(paneldump, p)
+    map(s -> vcat(map(d -> getfield(d, s), data)...), (f=:f, x=:x, w=:w, gw=:gw))
+end
+
+# unlike nested_quadgk, this routine won't support iterated_integrand since that
+# could change the type of the result and mess up the error estimation
 """
     iterated_integration(f, a, b; kwargs...)
-    iterated_integration(f::AbstractIteratedIntegrand{d}, ::AbstractIteratedLimits{d}; order=7, atol=nothing, rtol=nothing, norm=norm, maxevals=typemax(Int), initdivs=ntuple(i -> Val(1), Val{d}()), segbufs=nothing) where d
-
-Calls `QuadGK` to perform iterated 1D integration of `f` over a compact domain
-parametrized by `AbstractIteratedLimits`. In the case two points `a` and `b` are
-passed, the integration region becomes the hypercube with those extremal
-vertices (which mimics `hcubature`). `f` is assumed to be type-stable.
-
-Returns a tuple `(I, E)` of the estimated integral and estimated error.
-
-Keyword options include a relative error tolerance `rtol` (if `atol==0`,
-defaults to `sqrt(eps)` in the precision of the norm of the return type), an
-absolute error tolerance `atol` (defaults to 0), a maximum number of function
-evaluations `maxevals` for each nested integral (defaults to `10^7`), and the
-`order` of the integration rule (defaults to 7).
-
-The algorithm is an adaptive Gauss-Kronrod integration technique: the integral
-in each interval is estimated using a Kronrod rule (`2*order+1` points) and the
-error is estimated using an embedded Gauss rule (`order` points). The interval
-with the largest error is then subdivided into two intervals and the process is
-repeated until the desired error tolerance is achieved. This 1D procedure is
-applied recursively to each variable of integration in an order determined by
-`l` to obtain the multi-dimensional integral.
-
-Unlike `quadgk`, this routine does not allow infinite limits of integration nor
-unions of intervals to avoid singular points of the integrand. However, the
-`initdivs` keyword allows passing a tuple of integers which specifies the
-initial number of panels in each `quadgk` call at each level of integration.
-
-In normal usage, `iterated_integration` will allocate segment buffers. You can
-instead pass a preallocated buffer allocated using [`alloc_segbufs`](@ref) as
-the segbuf argument. This buffer can be used across multiple calls to avoid
-repeated allocation.
+    iterated_integration(f::AbstractIteratedIntegrand{d}, l::AbstractLimits{d}; order=7, atol=0, rtol=sqrt(eps()), norm=norm, maxevals=10^7, segbuf=nothing) where d
 """
 function iterated_integration(f, a, b; kwargs...)
     l = CubicLimits(a, b)
     iterated_integration(ThunkIntegrand{ndims(l)}(f), l; kwargs...)
 end
-iterated_integration(f::F, l::L; kwargs...) where {F,L} =
-    iterated_integration_(Val(ndims(l)), f, l, iterated_integration_kwargs(f, l; kwargs...)...)
+iterated_integration(f::F, l::L; order=7, atol=nothing, rtol=nothing, norm=norm, maxevals=10^7, initdiv=1, segbuf=nothing) where {F,L} =
+    do_iai(f, l, order, Val(initdiv), atol, rtol, maxevals, norm, segbuf)
 
-function iterated_integration_kwargs(f::F, l::L; order=7, atol=nothing, rtol=nothing, norm=norm, maxevals=10^7, initdivs=ntuple(i -> Val(1), Val{ndims(l)}()), segbufs=nothing) where {F,L}
-    segbufs_ = segbufs === nothing ? alloc_segbufs(f, l) : segbufs
-    atol_ = something(atol, zero(eltype(l)))
-    rtol_ = something(rtol, iszero(atol_) ? sqrt(eps(one(eltype(l)))) : zero(eltype(l)))
-    (order=order, atol=atol_, rtol=rtol_, maxevals=maxevals, norm=norm, initdivs=initdivs, segbufs=segbufs_)
-end
+function do_iai(f::F, l::L, n, ::Val{N}, atol, rtol, maxevals, nrm, segbuf) where {F,L,N}
+    T = eltype(l); d = ndims(l)
+    x,w,gw = cachedrule(T,n)
+    
+    @assert N ≥ 1
+    (numevals = N*(2n+1)^d) <= maxevals || throw(ArgumentError("maxevals exceeded on initial evaluation"))
+    s = iterated_segs(f, l, Val(N))
+    segs = ntuple(n -> evalpanel(Val(d), f, l, s[n], s[n+1], x,w,gw, nrm, Val(N)), Val(N))
+    I = sum(s -> s.I, segs)
+    E = sum(s -> s.E, segs)
+    # This error estimate is for the outer integral
+    # It might help to be more rigorous and check that all the inner integrals
+    # are converged as well, e.g. using nderr
 
-function iterated_integration_(::Val{1}, f::F, l::L, order, atol, rtol, maxevals, norm::N, initdivs, segbufs) where {F,L,N}
-    # see notes on plain quadgk below
-    # quadgk(f, iterated_segs(f, l, initdivs[1])...; order=order, atol=atol, rtol=rtol, maxevals=maxevals, norm=norm, segbuf=segbufs[1])
-    do_quadgk(f, iterated_segs(f, l, initdivs[1]), order, atol, rtol, maxevals, norm, segbufs[1])
-end
-function iterated_integration_(::Val{d}, f::F, l::L, order, atol, rtol, maxevals, norm::N, initdivs, segbufs) where {d,F,L,N}
-    # using plain quadgk (below) doesn't work so well because of the anonymous
-    # function in the handle_infinities routine. The inference problem can be
-    # fixed but it makes precompilation incredibly tedious. see the `alloc`
-    # branch of lxvm/QuadGK.jl for the fix. Perhaps the fix could also be done
-    # by writing handle_infinities here instead of modifying QuadGK.jl
-    
-    # quadgk(f_, iterated_segs(f, l, initdivs[d])...; order=order, atol=atol, rtol=rtol, maxevals=maxevals, norm=norm, segbuf=segbufs[d])
-    
-    # avoid runtime dispatch when capturing variables
-    # https://docs.julialang.org/en/v1/manual/performance-tips/#man-performance-captured
-    f_ = let f=f, l=l, order=order, (atol, rtol)=iterated_tol_update(f, l, atol, rtol, d), maxevals=maxevals, norm=norm, initdivs=initdivs, segbufs=segbufs
-        x -> iterated_integrand(f, first(iterated_integration_(Val(d-1), iterated_pre_eval(f, x, Val(d)), fixandeliminate(l, x), order, atol, rtol, maxevals, norm, initdivs, segbufs)), Val(d))
+    # logic here is mainly to handle dimensionful quantities: we
+    # don't know the correct type of atol, in particular, until
+    # this point where we have the type of E from f. Also, follow
+    # Base.isapprox in that if atol≠0 is supplied by the user, rtol
+    # defaults to zero.
+    atol_ = something(atol, zero(E))
+    rtol_ = something(rtol, iszero(atol_) ? sqrt(eps(one(eltype(x)))) : zero(eltype(x)))
+
+    # optimize common case of no subdivision
+    if E ≤ atol_ || E ≤ rtol_ * nrm(I) || numevals ≥ maxevals
+        return (I, E, numevals) # fast return when no subdivisions required
     end
-    do_quadgk(f_, iterated_segs(f, l, initdivs[d]), order, atol, rtol, maxevals, norm, segbufs[d])
+
+    segheap = segbuf === nothing ? collect(segs) : (resize!(segbuf, N) .= segs)
+    heapify!(segheap, Reverse)
+    @show adaptpanel!(segheap, Val(d), f, l, I, E, numevals, x,w,gw,n, atol_, rtol_, maxevals, nrm, Val(N))
+    return segheap
 end
 
-"""
-    alloc_segbufs(coefficient_type, typesof_fx, typesof_nfx, ndim)
-    alloc_segbufs(f, l::AbstractIteratedLimits)
+# internal routine to perform the h-adaptive refinement of the multi-dimensional integration segments (segs)
+# the main difference in error estimation is that nested_quadgk is a depth-first
+# approach whereas here we try to employ breadth-first (although refining an
+# integral in an inner dimension updates the outer dimensions and this needs to
+# be taken into account)
+function adaptpanel!(segs::Vector{T}, ::Val{d}, f::F, l::L, I, E, numevals, x,w,gw,n, atol, rtol, maxevals, nrm, ::Val{N}) where {T,d,F,L,N}
+    # Pop the biggest-error segment and subdivide (h-adaptation)
+    # until convergence is achieved or maxevals is exceeded.
+    while (tol = max(atol, rtol * nrm(I))) < E
+        if numevals > maxevals
+            @warn "maxevals exceeded"
+            break
+        end
+        # d > 1 && @show length(segs)
 
-This helper function will allocate enough segment buffers as are needed for an
-`iterated_integration` call of integrand `f` and integration limits `l`.
-`coefficient_type` should be `eltype(l)`, `typesof_fx` should be the return type of the
-integrand `f` for each iteration of integration, `typesof_nfx` should be the
-types of the norms of a value of `f` for each iteration of integration, and
-`ndim` should be `ndims(l)`.
-"""
-alloc_segbufs(coefficient_type, typesof_fx, typesof_nfx, ndim) =
-    ntuple(n -> alloc_segbuf(coefficient_type, typesof_fx[n], typesof_nfx[n]), Val{ndim}())
-function alloc_segbufs(f, l)
-    typesof_fx = iterated_inference(f, l)
-    typesof_nfx = ntuple(n -> Base.promote_op(norm, typesof_fx[n]), Val{ndims(l)}())
-    alloc_segbufs(eltype(l), typesof_fx, typesof_nfx, ndims(l))
+        s = heappop!(segs, Reverse)
+        # d > 1 && @show length(segs) E
+
+        if d > 1
+            # @show "haha"
+            # adapt in the inner integral
+            sI, sE, numevals = resolvepanel!(s, Val(d), f, l, s.I, s.E, numevals, x,w,gw,n, atol, rtol, maxevals, nrm, Val(N))
+            # @show E sE s.E
+            E = (E - s.E) + sE
+            # @show I sI s.I
+            I = (I - s.I) + sI
+            # return
+            s = Panel(s.a, s.b, sI, sE, s.n)
+            heappush!(segs, s, Reverse)
+            s = heappop!(segs, Reverse)
+        end
+        # d > 1 && @show I E
+        # nested quadgk first does resolvepanel! and then the adaptive step
+        # this is what I think it means to do breadth first search
+        d == 1 && @show E
+        if d == 1 || E > tol
+            # d > 1 && @show "jeje"
+            # adapt in the current integral a la quadgk
+            mid = (s.a + s.b) / 2
+            s1 = evalpanel(Val(d), f, l, s.a, mid, x,w,gw, nrm, Val(N))
+            s2 = evalpanel(Val(d), f, l, mid, s.b, x,w,gw, nrm, Val(N))
+            # d > 1 && @show E s.E
+            I = (I - s.I) + s1.I + s2.I
+            E = (E - s.E) + s1.E + s2.E
+            # d > 1 && @show E
+            numevals += 2*(2n+1)^d
+            # d > 1 && @show length(segs)
+            heappush!(segs, s1, Reverse)
+            heappush!(segs, s2, Reverse)
+            # d > 1 && @show length(segs)
+        end
+        # d > 1 && @show I E tol
+
+    end
+    # @show numevals
+    # re-sum (paranoia about accumulated roundoff)
+    I = segs[1].I
+    E = segs[1].E
+    for i in 2:length(segs)
+        I += segs[i].I
+        E += segs[i].E
+    end
+    return (I, E, numevals)
+end
+
+# internal routine to raise the accuracy of the nodes in a panel
+function resolvepanel!(p::Panel, ::Val{d}, f::F, l::L, I, E, numevals, x,w,gw,n, atol, rtol, maxevals, nrm, ::Val{N}) where {d,F,L,N}
+    # @show length(p.n)
+    for (i,node) in enumerate(p.n)
+        if true # E > max(atol, rtol*nrm(I)) # nested quadgk always goes
+            g = iterated_pre_eval(f, node.x, Val(d))
+            m = fixandeliminate(l, node.x)
+            heapify!(node.p, Reverse)
+            pI, pE, numevals = adaptpanel!(node.p, Val(d-1), g, m, node.v, sum(n -> n.E, node.p), numevals, x,w,gw,n, atol, rtol, maxevals, nrm, Val(N))
+            I = (I - node.w*node.v) + node.w*pI
+            # E = (E - sum(p -> p.E, node.p)) + pE
+            p.n[i] = Node(pI, node.x, node.w, node.g, node.p)
+            # @show nevals
+            if numevals > maxevals
+                @warn "maxevals exceeded"
+                break
+            end
+            # @show i
+        end
+    end
+    # @show numevals
+    # compute Ik, Ig for this panel
+    Ik = p.n[1].w * p.n[1].v
+    Ig = p.n[1].g * p.n[1].v
+    for i in 2:length(p.n)
+        Ik += p.n[i].w * p.n[i].v
+        Ig += p.n[i].g * p.n[i].v
+    end
+    E = nrm(Ik - Ig)
+    return (Ik, E, numevals)
 end
