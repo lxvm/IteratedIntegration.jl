@@ -45,27 +45,27 @@ function evalpanel(::Val{d}, f::F, l::L, a, b, x,w,gw, nrm, ::Val{N}) where {d,F
     s = convert(eltype(x), 0.5) * (b-a)
     n1 = 1 - (length(x) & 1) # 0 if even order, 1 if odd order
     # unroll first iteration of loop to get correct type of Ik and Ig
-    node[2] = fg1 = evalnode(Val(d), f, l, a + (1+x[2])*s, w[2], gw[1], x, w, gw, nrm, Val(N))
+    node[2] = fg1 = evalnode(Val(d), f, l, a + (1+x[2])*s, w[2] * s, gw[1] * s, x, w, gw, nrm, Val(N))
     # node[2] = fg1 = f(a + (1+x[2])*s, w[2], gw[1])
-    node[p-1] = fg2 = evalnode(Val(d), f, l, a + (1-x[2])*s, w[2], gw[1], x, w, gw, nrm, Val(N))
+    node[p-1] = fg2 = evalnode(Val(d), f, l, a + (1-x[2])*s, w[2] * s, gw[1] * s, x, w, gw, nrm, Val(N))
     # node[p-1] = fg2 = f(a + (1-x[2])*s, w[2], gw[1])
     fg = fg1.v + fg2.v
-    node[1] = fk1 = evalnode(Val(d), f, l, a + (1+x[1])*s, w[1], zero(gw[1]), x, w, gw, nrm, Val(N))
+    node[1] = fk1 = evalnode(Val(d), f, l, a + (1+x[1])*s, w[1] * s, zero(gw[1]), x, w, gw, nrm, Val(N))
     # node[1] = fk1 = f(a + (1+x[1])*s, w[1], zero(gw[1]))
-    node[p] = fk2 = evalnode(Val(d), f, l, a + (1-x[1])*s, w[1], zero(gw[1]), x, w, gw, nrm, Val(N))
+    node[p] = fk2 = evalnode(Val(d), f, l, a + (1-x[1])*s, w[1] * s, zero(gw[1]), x, w, gw, nrm, Val(N))
     # node[p] = fk2 = f(a + (1-x[1])*s, w[1], zero(gw[1]))
     fk = fk1.v + fk2.v
     Ig = fg * gw[1]
     Ik = fg * w[2] + fk * w[1]
     for i = 2:length(gw)-n1
-        node[2i] = fg1 = evalnode(Val(d), f, l, a + (1+x[2i])*s, w[2i], gw[i], x, w, gw, nrm, Val(N))
+        node[2i] = fg1 = evalnode(Val(d), f, l, a + (1+x[2i])*s, w[2i] * s, gw[i] * s, x, w, gw, nrm, Val(N))
         # node[2i] = fg1 = f(a + (1+x[2i])*s, w[2i], gw[i])
-        node[p-2i+1] = fg2 = evalnode(Val(d), f, l, a + (1-x[2i])*s, w[2i], gw[i], x, w, gw, nrm, Val(N))
+        node[p-2i+1] = fg2 = evalnode(Val(d), f, l, a + (1-x[2i])*s, w[2i] * s, gw[i] * s, x, w, gw, nrm, Val(N))
         # node[p-2i+1] = fg2 = f(a + (1-x[2i])*s, w[2i], gw[i])
         fg = fg1.v + fg2.v
-        node[2i-1] = fk1 = evalnode(Val(d), f, l, a + (1+x[2i-1])*s, w[2i-1], zero(gw[i]), x, w, gw, nrm, Val(N))
+        node[2i-1] = fk1 = evalnode(Val(d), f, l, a + (1+x[2i-1])*s, w[2i-1] * s, zero(gw[i]), x, w, gw, nrm, Val(N))
         # node[2i-1] = fk1 = f(a + (1+x[2i-1])*s, w[2i-1], zero(gw[i]))
-        node[p-2i+2] = fk2 = evalnode(Val(d), f, l, a + (1-x[2i-1])*s, w[2i-1], zero(gw[i]), x, w, gw, nrm, Val(N))
+        node[p-2i+2] = fk2 = evalnode(Val(d), f, l, a + (1-x[2i-1])*s, w[2i-1] * s, zero(gw[i]), x, w, gw, nrm, Val(N))
         # node[p-2i+2] = fk2 = f(a + (1-x[2i-1])*s, w[2i-1], zero(gw[i]))
         fk = fk1.v + fk2.v
         Ig += fg * gw[i]
@@ -73,18 +73,18 @@ function evalpanel(::Val{d}, f::F, l::L, a, b, x,w,gw, nrm, ::Val{N}) where {d,F
     end
     c = div(p,2)
     if n1 == 0 # even: Gauss rule does not include x == 0
-        node[c+1] = fk0 = evalnode(Val(d), f, l, a + s, w[end], zero(w[end]), x, w, gw, nrm, Val(N))
+        node[c+1] = fk0 = evalnode(Val(d), f, l, a + s, w[end] * s, zero(w[end]), x, w, gw, nrm, Val(N))
         # node[c+1] = fk0 = f(a + s, w[end], zero(w[end]))
         fk = fk0.v
         Ik += fk * w[end]
     else # odd: don't count x==0 twice in Gauss rule
-        node[c+1] = fg0 = evalnode(Val(d), f, l, a + s, w[end], gw[end], x, w, gw, nrm, Val(N))
+        node[c+1] = fg0 = evalnode(Val(d), f, l, a + s, w[end] * s, gw[end] * s, x, w, gw, nrm, Val(N))
         # node[c+1] = fg0 = f(a + s, w[end], gw[end])
         fg = fg0.v
         Ig += fg * gw[end]
-        node[c] = fk1 = evalnode(Val(d), f, l, a + (1+x[end-1])*s, w[end-1], zero(gw[end]), x, w, gw, nrm, Val(N))
+        node[c] = fk1 = evalnode(Val(d), f, l, a + (1+x[end-1])*s, w[end-1] * s, zero(gw[end]), x, w, gw, nrm, Val(N))
         # node[c] = fk1 = f(a + (1+x[end-1])*s, w[end-1], zero(gw[end]))
-        node[c+2] = fk2 = evalnode(Val(d), f, l, a + (1-x[end-1])*s, w[end-1], zero(gw[end]), x, w, gw, nrm, Val(N))
+        node[c+2] = fk2 = evalnode(Val(d), f, l, a + (1-x[end-1])*s, w[end-1] * s, zero(gw[end]), x, w, gw, nrm, Val(N))
         # node[c+2] = fk2 = f(a + (1-x[end-1])*s, w[end-1], zero(gw[end]))
         fk = fk1.v + fk2.v
         Ik += fg * w[end] + fk * w[end-1]
@@ -208,14 +208,13 @@ function adaptpanel!(segs::Vector{T}, ::Val{d}, f::F, l::L, I, E, numevals, x,w,
             # @show I sI s.I
             I = (I - s.I) + sI
             # return
-            s = Panel(s.a, s.b, sI, sE, s.n)
-            heappush!(segs, s, Reverse)
+            heappush!(segs, Panel(s.a, s.b, sI, sE, s.n), Reverse)
             s = heappop!(segs, Reverse)
         end
         # d > 1 && @show I E
         # nested quadgk first does resolvepanel! and then the adaptive step
         # this is what I think it means to do breadth first search
-        d == 1 && @show E
+        tol = max(atol, rtol * nrm(I))
         if d == 1 || E > tol
             # d > 1 && @show "jeje"
             # adapt in the current integral a la quadgk
@@ -249,6 +248,15 @@ end
 # internal routine to raise the accuracy of the nodes in a panel
 function resolvepanel!(p::Panel, ::Val{d}, f::F, l::L, I, E, numevals, x,w,gw,n, atol, rtol, maxevals, nrm, ::Val{N}) where {d,F,L,N}
     # @show length(p.n)
+    Ik = p.n[1].w * p.n[1].v
+    Ig = p.n[1].g * p.n[1].v
+    for i in 2:length(p.n)
+        Ik += p.n[i].w * p.n[i].v
+        Ig += p.n[i].g * p.n[i].v
+    end
+    @assert Ik ≈ I "$I $Ik"
+    @assert E ≈ nrm(Ik - Ig)
+
     for (i,node) in enumerate(p.n)
         if true # E > max(atol, rtol*nrm(I)) # nested quadgk always goes
             g = iterated_pre_eval(f, node.x, Val(d))
