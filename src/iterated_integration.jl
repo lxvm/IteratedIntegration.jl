@@ -177,8 +177,7 @@ function do_iai(f::F, l::L, n, ::Val{N}, atol, rtol, maxevals, nrm, segbuf) wher
 
     segheap = segbuf === nothing ? collect(segs) : (resize!(segbuf, N) .= segs)
     heapify!(segheap, Reverse)
-    @show adaptpanel!(segheap, Val(d), f, l, I, E, numevals, x,w,gw,n, atol_, rtol_, maxevals, nrm, Val(N))
-    return segheap
+    adaptpanel!(segheap, Val(d), f, l, I, E, numevals, x,w,gw,n, atol_, rtol_, maxevals, nrm, Val(N))
 end
 
 # internal routine to perform the h-adaptive refinement of the multi-dimensional integration segments (segs)
@@ -195,31 +194,25 @@ function adaptpanel!(segs::Vector{T}, ::Val{d}, f::F, l::L, I, E, numevals, x,w,
 
         s = heappop!(segs, Reverse)
 
+        # adapt in the current integral
+        mid = (s.a + s.b) / 2
+        s1 = evalpanel(Val(d), f, l, s.a, mid, x,w,gw, nrm, Val(N))
+        s2 = evalpanel(Val(d), f, l, mid, s.b, x,w,gw, nrm, Val(N))
+        numevals += 2*(2n+1)^d
+
         if d > 1
             # adapt in the inner integral
-            sI, sE, numevals = resolvepanel!(s, Val(d), f, l, s.I, s.E, numevals, x,w,gw,n, atol, rtol, maxevals, nrm, Val(N))
-            E = (E - s.E) + sE
-            I = (I - s.I) + sI
-            
-            heappush!(segs, Panel(s.a, s.b, sI, sE, s.n), Reverse)
-            s = heappop!(segs, Reverse)
-            tol = max(atol, rtol * nrm(I))
+            # we could eventually be smarter about passing an atol based on rtol
+            s1, numevals = resolvepanel(s1, Val(d), f, l, s1.I, s1.E, numevals, x,w,gw,n, atol, rtol, maxevals, nrm, Val(N))
+            s2, numevals = resolvepanel(s2, Val(d), f, l, s2.I, s2.E, numevals, x,w,gw,n, atol, rtol, maxevals, nrm, Val(N))
         end
+        
+        I = (I - s.I) + s1.I + s2.I
+        E = (E - s.E) + s1.E + s2.E
 
-        if d == 1 || E > tol
-            # adapt in the current integral
-            mid = (s.a + s.b) / 2
-            s1 = evalpanel(Val(d), f, l, s.a, mid, x,w,gw, nrm, Val(N))
-            s2 = evalpanel(Val(d), f, l, mid, s.b, x,w,gw, nrm, Val(N))
-            I = (I - s.I) + s1.I + s2.I
-            E = (E - s.E) + s1.E + s2.E
-            numevals += 2*(2n+1)^d
-
-            heappush!(segs, s1, Reverse)
-            heappush!(segs, s2, Reverse)
-        elseif d > 1
-            heappush!(segs, s, Reverse)
-        end
+        heappush!(segs, s1, Reverse)
+        heappush!(segs, s2, Reverse)
+    
     end
 
     # re-sum (paranoia about accumulated roundoff)
@@ -233,20 +226,18 @@ function adaptpanel!(segs::Vector{T}, ::Val{d}, f::F, l::L, I, E, numevals, x,w,
 end
 
 # internal routine to raise the accuracy of the nodes in a panel
-function resolvepanel!(p::Panel, ::Val{d}, f::F, l::L, I, E, numevals, x,w,gw,n, atol, rtol, maxevals, nrm, ::Val{N}) where {d,F,L,N}
+function resolvepanel(p::Panel, ::Val{d}, f::F, l::L, I, E, numevals, x,w,gw,n, atol, rtol, maxevals, nrm, ::Val{N}) where {d,F,L,N}
     for (i,node) in enumerate(p.n)
-        if true # E > max(atol, rtol*nrm(I)) # nested quadgk always goes
-            g = iterated_pre_eval(f, node.x, Val(d))
-            m = fixandeliminate(l, node.x)
-            heapify!(node.p, Reverse)
-            pI, pE, numevals = adaptpanel!(node.p, Val(d-1), g, m, node.v, sum(n -> n.E, node.p), numevals, x,w,gw,n, atol, rtol, maxevals, nrm, Val(N))
-            # I = (I - node.w*node.v) + node.w*pI
-            # E = (E - sum(p -> p.E, node.p)) + pE
-            p.n[i] = Node(pI, node.x, node.w, node.g, node.p)
-            if numevals > maxevals
-                @warn "maxevals exceeded"
-                break
-            end
+        g = iterated_pre_eval(f, node.x, Val(d))
+        m = fixandeliminate(l, node.x)
+        heapify!(node.p, Reverse)
+        pI, pE, numevals = adaptpanel!(node.p, Val(d-1), g, m, node.v, sum(n -> n.E, node.p), numevals, x,w,gw,n, atol, rtol, maxevals, nrm, Val(N))
+        # I = (I - node.w*node.v) + node.w*pI
+        # E = (E - sum(p -> p.E, node.p)) + pE
+        p.n[i] = Node(pI, node.x, node.w, node.g, node.p)
+        if numevals > maxevals
+            @warn "maxevals exceeded"
+            break
         end
     end
     # compute Ik, Ig for this panel
@@ -257,5 +248,5 @@ function resolvepanel!(p::Panel, ::Val{d}, f::F, l::L, I, E, numevals, x,w,gw,n,
         Ig += p.n[i].g * p.n[i].v
     end
     E = nrm(Ik - Ig)
-    return (Ik, E, numevals)
+    return Panel(p.a, p.b, Ik, E, p.n), numevals
 end
