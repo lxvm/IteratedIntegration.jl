@@ -97,14 +97,12 @@ function iterated_integration(f, a, b; kwargs...)
     l = CubicLimits(a, b)
     iterated_integration(ThunkIntegrand{ndims(l)}(f), l; kwargs...)
 end
-iterated_integration(f::F, l::L; kwargs...) where {F,L} =
-    iterated_integration_(Val(ndims(l)), f, l, iterated_integration_kwargs(f, l; kwargs...)...)
-
-function iterated_integration_kwargs(f::F, l::L; order=7, atol=nothing, rtol=nothing, norm=norm, maxevals=10^7, initdivs=ntuple(i -> Val(1), Val{ndims(l)}()), segbufs=nothing) where {F,L}
+function iterated_integration(f::F, l::L; order=7, atol=nothing, rtol=nothing, norm=norm, maxevals=10^7, initdivs=nothing, segbufs=nothing) where {F,L}
+    initdivs_ = initdivs === nothing ? ntuple(i -> Val(1), Val{ndims(l)}()) : initdivs
     segbufs_ = segbufs === nothing ? alloc_segbufs(f, l) : segbufs
     atol_ = something(atol, zero(eltype(l)))
     rtol_ = something(rtol, iszero(atol_) ? sqrt(eps(one(eltype(l)))) : zero(eltype(l)))
-    (order=order, atol=atol_, rtol=rtol_, maxevals=maxevals, norm=norm, initdivs=initdivs, segbufs=segbufs_)
+    iterated_integration_(Val(ndims(l)), f, l, order, atol_, rtol_, maxevals, norm, initdivs_, segbufs_)
 end
 
 function iterated_integration_(::Val{1}, f::F, l::L, order, atol, rtol, maxevals, norm::N, initdivs, segbufs) where {F,L,N}
