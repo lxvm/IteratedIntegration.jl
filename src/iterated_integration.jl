@@ -102,7 +102,7 @@ function iterated_integration(f::F, l::L; order=7, atol=nothing, rtol=nothing, n
     segbufs_ = segbufs === nothing ? alloc_segbufs(f, l) : segbufs
     atol_ = something(atol, zero(eltype(l)))
     rtol_ = something(rtol, iszero(atol_) ? sqrt(eps(one(eltype(l)))) : zero(eltype(l)))
-    iterated_integration_(Val(ndims(l)), f, l, order, atol_, rtol_, maxevals, norm, initdivs_, segbufs_)
+    iterated_integration_(Val(ndims(l)), f, l, order, atol_, rtol_, maxevals, norm, initdivs_, segbufs_)::iterated_integral_type(f, l)
 end
 
 function iterated_integration_(::Val{1}, f::F, l::L, order, atol, rtol, maxevals, norm::N, initdivs, segbufs) where {F,L,N}
