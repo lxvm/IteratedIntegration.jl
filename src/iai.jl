@@ -17,13 +17,8 @@ mutable struct HeapSegment{T,TX,TI,TE}
     sE::TE
 end
 
-AbstractTrees.nodevalue(t::Segment) = t.I
-
-AbstractTrees.children(t::HeapSegment) = t.h.valtree
-AbstractTrees.nodevalue(t::HeapSegment) = t.Ik
-
-AbstractTrees.children(n::HeapNode) = n.h.valtree
-AbstractTrees.nodevalue(n::HeapNode) = n.I
+segvalue(s::Segment) = s.I
+segvalue(s::HeapSegment) = s.Ik
 
 # distinguish between the GK rule error and the multidimensional quadrature error
 ruleerror(s::Segment) = s.E
@@ -63,8 +58,8 @@ function evalnode(::Val{d}, f::F,l::L,::Val{N}, xn, wn, gwn, x,w,gw,nrm) where {
     m = fixandeliminate(l, xn)
     segs = evalsegs(Val(d-1), g,m,Val(N), x,w,gw, nrm)
     segheap = BinaryMaxHeap(collect(segs))
-    I = sum(s -> nodevalue(s), segs)
-    E = sum(s -> quaderror(s), segs)
+    I = sum(segvalue,  segs)
+    E = sum(quaderror, segs)
     HeapNode(segheap, I,E, xn,wn,gwn)
 end
 
@@ -82,18 +77,18 @@ function evalrule(::Val{d}, f::F,l::L,::Val{N}, a,b, x,w,gw, nrm) where {d,F,L,N
         f0.g = zero(f0.g)
         push!(nodeheap, f0)
 
-        Ik = nodevalue(f0) * w[end]
+        Ik = f0.I * w[end]
         Ig = zero(Ik)
-        qE = quaderror(f0) * w[end]
+        qE = f0.E * w[end]
 
     else # odd: don't count x==0 twice in Gauss rule
         fk1 = evalnode(Val(d), f,l,Val(N), a + (1+x[end-1])*s, w[end-1] * s, zero(gw[end]), x, w, gw, nrm)
         fk2 = evalnode(Val(d), f,l,Val(N), a + (1-x[end-1])*s, w[end-1] * s, zero(gw[end]), x, w, gw, nrm)
         push!(nodeheap, f0, fk1, fk2)
 
-        Ig = nodevalue(f0) * gw[end]
-        Ik = nodevalue(f0) * w[end] + (nodevalue(fk1) + nodevalue(fk2)) * w[end-1]
-        qE = quaderror(f0) * w[end] + (quaderror(fk1) + quaderror(fk2)) * w[end-1]
+        Ig = f0.I * gw[end]
+        Ik = f0.I * w[end] + (fk1.I + fk2.I) * w[end-1]
+        qE = f0.E * w[end] + (fk1.E + fk2.E) * w[end-1]
     end
 
     # Ik and Ig are integrals via Kronrod and Gauss rules, respectively
@@ -106,10 +101,10 @@ function evalrule(::Val{d}, f::F,l::L,::Val{N}, a,b, x,w,gw, nrm) where {d,F,L,N
         fk2 = evalnode(Val(d), f,l,Val(N), a + (1-x[2i-1])*s, w[2i-1] * s, zero(gw[i]), x, w, gw, nrm)
         push!(nodeheap, fg1, fg2, fk1, fk2)
 
-        fg = nodevalue(fg1) + nodevalue(fg2)
-        fk = nodevalue(fk1) + nodevalue(fk2)
-        Eg = quaderror(fg1) + quaderror(fg2)
-        Ek = quaderror(fk1) + quaderror(fk2)
+        fg = fg1.I + fg2.I
+        fk = fk1.I + fk2.I
+        Eg = fg1.E + fg2.E
+        Ek = fk1.E + fk2.E
 
         Ig += fg * gw[i]
         Ik += fg * w[2i] + fk * w[2i-1]
@@ -132,16 +127,19 @@ function pre_evaluate(::Val{d}, f, l, xs::NTuple{N}) where {d,N}
     pre_evaluate(Val(d-1), iterated_pre_eval(f, xs[N], Val(d)), fixandeliminate(l, xs[N]), Base.front(xs))
 end
 
-treesum(s::Segment) = (s.I, s.E)
-treesum(n::HeapNode) = n.w .* reduce((a,b) -> a .+ b, treesum.(children(n)))
-treesum(s::HeapSegment) = reduce((a,b) -> a .+ b, treesum.(children(s)))
+treesum(s::Segment) = (segvalue(s), quaderror(s))
+treesum(n::HeapNode) = n.w .* reduce((a,b) -> a .+ b, treesum.(n.h.valtree))
+treesum(s::HeapSegment) = reduce((a,b) -> a .+ b, treesum.(s.h.valtree))
 
 
 # unlike nested_quadgk, this routine won't support iterated_integrand since that
 # could change the type of the result and mess up the error estimation
 """
     iai(f, a, b; kwargs...)
-    iai(f::AbstractIteratedIntegrand{d}, l::AbstractLimits{d}; order=7, atol=0, rtol=sqrt(eps()), norm=norm, maxevals=10^7, segbuf=nothing) where d
+    iai(f::AbstractIteratedIntegrand{d}, l::AbstractLimits{d}; order=7, atol=0, rtol=sqrt(eps()), norm=norm, maxevals=typemax(Int), segbuf=nothing) where d
+    
+Multi-dimensional globally-adaptive quadrature via iterated integration using
+Gauss-Kronrod rules. Interface is similar to [`nested_quadgk`](@ref).
 """
 function iai(f, a, b; kwargs...)
     l = CubicLimits(a, b)
@@ -158,7 +156,7 @@ function do_iai(f::F, l::L, ::Val{N}, n, atol, rtol, maxevals, nrm, buf) where {
     @assert N ≥ 1
     (numevals = N*p^d) <= maxevals || throw(ArgumentError("maxevals exceeded on initial evaluation"))
     segs = evalsegs(Val(d), f,l,Val(N), x,w,gw, nrm)
-    I = sum(s -> nodevalue(s), segs)
+    I = sum(s -> segvalue(s), segs)
     E = sum(s -> quaderror(s), segs)
 
     # logic here is mainly to handle dimensionful quantities: we
@@ -185,7 +183,7 @@ function adapt!(segheap::BinaryMaxHeap{T}, ::Val{d}, f::F, l::L, I, E, numevals,
     while max(atol, rtol * nrm(I)) < E
         
         s = pop!(segheap)
-        I -= nodevalue(s)
+        I -= segvalue(s)
         E -= quaderror(s)
         
         # find the segment with the largest error by percolating down the tree
@@ -195,11 +193,11 @@ function adapt!(segheap::BinaryMaxHeap{T}, ::Val{d}, f::F, l::L, I, E, numevals,
             seglist = (s, seglist...); nodelist = (n, nodelist...)
             # remove the contribution of the node to the segment
             s.qE -= ruleerror(s) + quaderror(n)
-            s.Ik -= n.w * nodevalue(n)
-            s.Ig -= n.g * nodevalue(n)
+            s.Ik -= n.w * n.I
+            s.Ig -= n.g * n.I
             s = pop!(n.h) # segment in node with largest error
             # remove the contribution of the segment to the node
-            n.I -= nodevalue(s)
+            n.I -= segvalue(s)
             n.E -= quaderror(s)
         end
 
@@ -220,12 +218,12 @@ function adapt!(segheap::BinaryMaxHeap{T}, ::Val{d}, f::F, l::L, I, E, numevals,
         for (n,s) in zip(nodelist,seglist)
             # replace the removed segment(s)
             push!(n.h, segs...)
-            n.I += sum(nodevalue, segs)
+            n.I += sum(segvalue,  segs)
             n.E += sum(quaderror, segs)
             # replace the removed node
             push!(s.h, n)
-            s.Ik += n.w * nodevalue(n)
-            s.Ig += n.g * nodevalue(n)
+            s.Ik += n.w * n.I
+            s.Ig += n.g * n.I
             s.rE =  nrm(s.Ik - s.Ig)
             s.qE += ruleerror(s) + quaderror(n)
             s.sE =  max(ruleerror(s), sorterror(first(s.h)))
@@ -233,7 +231,7 @@ function adapt!(segheap::BinaryMaxHeap{T}, ::Val{d}, f::F, l::L, I, E, numevals,
         end
         
         push!(segheap, segs...)
-        I += sum(nodevalue, segs)
+        I += sum(segvalue,  segs)
         E += sum(quaderror, segs)
         # @show (depth, I, E)
     end

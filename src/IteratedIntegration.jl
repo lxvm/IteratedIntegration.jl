@@ -12,7 +12,6 @@ using LinearAlgebra
 
 using StaticArrays
 
-using AbstractTrees
 using DataStructures: BinaryMaxHeap, extract_all!
 using QuadGK: quadgk, do_quadgk, alloc_segbuf, cachedrule, Segment
 using Polyhedra: Polyhedron, VRepresentation, vrep, points, fulldim, hasallrays
