@@ -132,6 +132,11 @@ function pre_evaluate(::Val{d}, f, l, xs::NTuple{N}) where {d,N}
     pre_evaluate(Val(d-1), iterated_pre_eval(f, xs[N], Val(d)), fixandeliminate(l, xs[N]), Base.front(xs))
 end
 
+treesum(s::Segment) = (s.I, s.E)
+treesum(n::HeapNode) = n.w .* reduce((a,b) -> a .+ b, treesum.(children(n)))
+treesum(s::HeapSegment) = reduce((a,b) -> a .+ b, treesum.(children(s)))
+
+
 # unlike nested_quadgk, this routine won't support iterated_integrand since that
 # could change the type of the result and mess up the error estimation
 """
@@ -189,7 +194,7 @@ function adapt!(segheap::BinaryMaxHeap{T}, ::Val{d}, f::F, l::L, I, E, numevals,
             n = pop!(s.h) # node in segment with largest error
             seglist = (s, seglist...); nodelist = (n, nodelist...)
             # remove the contribution of the node to the segment
-            s.qE -= ruleerror(s) + n.w * quaderror(n)
+            s.qE -= ruleerror(s) + quaderror(n)
             s.Ik -= n.w * nodevalue(n)
             s.Ig -= n.g * nodevalue(n)
             s = pop!(n.h) # segment in node with largest error
@@ -222,7 +227,7 @@ function adapt!(segheap::BinaryMaxHeap{T}, ::Val{d}, f::F, l::L, I, E, numevals,
             s.Ik += n.w * nodevalue(n)
             s.Ig += n.g * nodevalue(n)
             s.rE =  nrm(s.Ik - s.Ig)
-            s.qE += ruleerror(s) + n.w * quaderror(n)
+            s.qE += ruleerror(s) + quaderror(n)
             s.sE =  max(ruleerror(s), sorterror(first(s.h)))
             segs = (s,)
         end
@@ -233,30 +238,14 @@ function adapt!(segheap::BinaryMaxHeap{T}, ::Val{d}, f::F, l::L, I, E, numevals,
         # @show (depth, I, E)
     end
     # re-sum (paranoia about accumulated roundoff)
-    # I = zero(I)
-    # E = zero(E)
-    # for leaf in Leaves(tree) # TODO, depth-first summation accumulating the node weights
-    #     I += nodevalue(leaf)
-    #     E += quaderror(leaf)
-    # end
+    I, E = treesum(segheap.valtree[1])
+    for i in 2:length(segheap)
+        I_, E_ = treesum(segheap.valtree[i])
+        I += I_
+        E += E_
+    end
     return (I, E)
 end
-
-function iai_count(f, a, b; kwargs...)
-    numevals = 0
-    I, E = iai(a, b; kwargs...) do x
-        numevals += 1
-        f(x)
-    end
-    return (I, E, numevals)
-end
-
-iai_print(io::IO, f, args...; kws...) = iai_count(args...; kws...) do x
-    y = f(x)
-    println(io, "f(", x, ") = ", y)
-    y
-end
-iai_print(f, args...; kws...) = iai_print(stdout, f, args...; kws...)
 
 """
     iai_buffer(ndim, DT, RT, NT)

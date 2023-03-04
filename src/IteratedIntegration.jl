@@ -35,7 +35,30 @@ include("iterated_integrands.jl")
 export nested_quadgk
 include("nested_quadgk.jl")
 
-export iai, iai_buffer, iai_count, iai_print
+export iai, iai_buffer
 include("iai.jl")
+
+for routine in (:nested_quadgk, :iai)
+    routine_count = Symbol(routine, :_count)
+    routine_print = Symbol(routine, :_print)
+    
+    @eval export $routine_count, $routine_print
+
+    @eval function $routine_count(f, a, b; kwargs...)
+        numevals = 0
+        I, E = $routine(a, b; kwargs...) do x
+            numevals += 1
+            f(x)
+        end
+        return (I, E, numevals)
+    end
+
+    @eval $routine_print(io::IO, f, args...; kws...) = $routine_count(args...; kws...) do x
+        y = f(x)
+        println(io, "f(", x, ") = ", y)
+        y
+    end
+    @eval $routine_print(f, args...; kws...) = $routine_print(stdout, f, args...; kws...)
+end
 
 end
