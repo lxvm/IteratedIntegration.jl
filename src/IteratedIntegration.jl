@@ -1,11 +1,10 @@
 """
 A package for iterated adaptive integration (IAI) based on
-[`QuadGK.jl`](https://github.com/JuliaMath/QuadGK.jl).
-Its main exports are [`iterated_integration`](@ref), a routine which performs
-multidimensional adaptive integration with nested `quadgk` calls,
-[`IteratedIntegrator`](@ref), which provides a functor interface to evaluate
-integrals, and the [`AbstractLimits`](@ref) abstraction to evaluate
-parametrizations of limits of integration.
+[`QuadGK.jl`](https://github.com/JuliaMath/QuadGK.jl). Its main exports are
+[`nested_quadgk`](@ref), a routine which performs multidimensional adaptive
+integration with nested `quadgk` calls, [`iai`](@ref), which performs
+globally-adaptive iterated integration, and the [`AbstractIteratedLimits`](@ref)
+abstraction to evaluate parametrizations of limits of integration.
 """
 module IteratedIntegration
 
@@ -15,10 +14,11 @@ using StaticArrays
 
 using AbstractTrees
 using DataStructures: BinaryMaxHeap, extract_all!
-using QuadGK: quadgk, do_quadgk, alloc_segbuf, cachedrule, evalrule, Segment
+using QuadGK: quadgk, do_quadgk, alloc_segbuf, cachedrule, Segment
 using Polyhedra: Polyhedron, VRepresentation, vrep, points, fulldim, hasallrays
 
 import Base.Order.Reverse
+import QuadGK: evalrule
 import IntervalSets: endpoints
 import Polyhedra: fixandeliminate
 
@@ -35,7 +35,7 @@ include("iterated_integrands.jl")
 export nested_quadgk
 include("nested_quadgk.jl")
 
-export iai, iai_count, iai_print # the main routine
-include("iterated_integration.jl")
+export iai, iai_buffer, iai_count, iai_print
+include("iai.jl")
 
 end
