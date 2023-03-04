@@ -64,7 +64,6 @@ function treepop!(t::HeapTree)
         s2, (nodelist..., n)
     else
         pop!(t.h)
-        t.Emax = length(t.h) == 0 ? zero(t.Emax) : sorterror(first(t.h))
         s, ()
     end
 end
@@ -74,10 +73,10 @@ function treepush!(t, nodelist, s...)
     return (nodevalue(t), quaderror(t))
 end
 function treepush!(t::HeapTree, ::Tuple{}, segs::NTuple)
+    foreach(s -> push!(t.h, s), segs)
     t.I += sum(nodevalue, segs)
     t.E += sum(quaderror, segs)
-    t.Emax = max(maximum(sorterror, segs), t.Emax)
-    foreach(s -> push!(t.h, s), segs)
+    t.Emax = sorterror(first(t.h))
     t
 end
 function treepush!(t::HeapTree, nodelist::Tuple, segs::NTuple)
@@ -93,7 +92,7 @@ function treepush!(t::HeapTree, nodelist::Tuple, segs::NTuple)
     push!(s.h, n)
     s.Emax = max(norm(s.Ik - s.Ig), sorterror(first(s.h)))
     push!(t.h, s)
-    t.Emax = max(t.Emax, sorterror(first(t.h)))
+    t.Emax = sorterror(first(t.h))
     t
 end
 
