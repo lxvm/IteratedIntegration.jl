@@ -13,7 +13,8 @@ using LinearAlgebra
 
 using StaticArrays
 
-using DataStructures: heapify!, heappop!, heappush!
+using AbstractTrees
+using DataStructures: BinaryMaxHeap, extract_all!
 using QuadGK: quadgk, do_quadgk, alloc_segbuf, cachedrule, evalrule, Segment
 using Polyhedra: Polyhedron, VRepresentation, vrep, points, fulldim, hasallrays
 
@@ -34,7 +35,7 @@ include("iterated_integrands.jl")
 export nested_quadgk
 include("nested_quadgk.jl")
 
-export iterated_integration # the main routine
+export iai, iai_count, iai_print # the main routine
 include("iterated_integration.jl")
 
 end
