@@ -83,17 +83,17 @@ using HCubature
     end
 
     @testset "hcubature validation" begin
+        atol = 1e-8
         for n in 1:3, routine in (nested_quadgk, iai)
             a = zeros(n)
             b = rand(n)
             for integrand in (x -> sin(sum(x)), x -> inv(0.01im+sin(sum(x))))
-                @test hcubature(integrand, a, b)[1] ≈ routine(integrand, a, b)[1]
+                @test hcubature(integrand, a, b; atol=atol)[1] ≈ routine(integrand, a, b; atol=atol)[1] atol=atol
             end
-            # iai seems to hang on this
-            # b = ones(n)*2pi
-            # integrand = x -> inv(0.01im + sum(sin, x))
-            # @test hcubature(integrand, a, b)[1] ≈ routine(integrand, a, b)[1]
-
+            # test a localized BZ-like integrand
+            b = ones(n)*2pi
+            integrand = x -> inv(im*10.0^(n-3) + sum(sin, x))
+            @test hcubature(integrand, a, b; atol=atol)[1] ≈ routine(integrand, a, b; atol=atol)[1] atol=atol
         end
     end
 end

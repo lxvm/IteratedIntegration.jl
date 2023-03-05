@@ -30,7 +30,7 @@ quaderror(s::HeapSegment) = s.qE
 sorterror(s::HeapSegment) = s.sE
 
 quaderror(n::HeapNode) = n.w * n.E
-sorterror(n::HeapNode) = n.w * sorterror(first(n.h))
+sorterror(n::HeapNode) = sorterror(first(n.h)) # sort by the largest segment error
 
 Base.isless(i::HeapNode, j::HeapNode) = isless(sorterror(i), sorterror(j))
 Base.isless(i::HeapSegment, j::HeapSegment) = isless(sorterror(i), sorterror(j))
@@ -122,11 +122,6 @@ function evalrule(::Val{d}, f::F,l::L,::Val{N}, a,b, x,w,gw, nrm) where {d,F,L,N
     return HeapSegment(nodeheap, oftype(s,a),oftype(s,b), Ik_s,Ig_s, rE,qE_s,sE)
 end
 
-pre_evaluate(::Val, f, l, ::Tuple{}) = f, l
-function pre_evaluate(::Val{d}, f, l, xs::NTuple{N}) where {d,N}
-    pre_evaluate(Val(d-1), iterated_pre_eval(f, xs[N], Val(d)), fixandeliminate(l, xs[N]), Base.front(xs))
-end
-
 treesum(s::Segment) = (segvalue(s), quaderror(s))
 treesum(n::HeapNode) = n.w .* reduce((a,b) -> a .+ b, treesum.(n.h.valtree))
 treesum(s::HeapSegment) = reduce((a,b) -> a .+ b, treesum.(s.h.valtree))
@@ -168,10 +163,10 @@ function do_iai(f::F, l::L, ::Val{N}, n, atol, rtol, maxevals, nrm, buf) where {
     rtol_ = something(rtol, iszero(atol_) ? sqrt(eps(one(eltype(x)))) : zero(eltype(x)))
 
     # optimize common case of no subdivision
-    # if E ≤ atol_ || E ≤ rtol_ * nrm(I) || numevals ≥ maxevals
-    #     return (I, E) # fast return when no subdivisions required
-    # end
-    
+    if E ≤ atol_ || E ≤ rtol_ * nrm(I) || numevals ≥ maxevals
+        return (I, E) # fast return when no subdivisions required
+    end
+
     segheap = buf===nothing ? BinaryMaxHeap(collect(segs)) : (empty!(buf.valtree); push!(buf, segs...); buf)
     adapt!(segheap, Val(d), f,l, I, E, numevals, x,w,gw,p, atol_, rtol_, maxevals, nrm)
 end
@@ -180,17 +175,21 @@ end
 function adapt!(segheap::BinaryMaxHeap{T}, ::Val{d}, f::F, l::L, I, E, numevals, x,w,gw,p, atol, rtol, maxevals, nrm) where {T,d,F,L}
     # Pop the biggest-error segment (in any dimension) and subdivide (h-adaptation)
     # until convergence is achieved or maxevals is exceeded.
-    while max(atol, rtol * nrm(I)) < E
-        
+    while (tol = max(atol, rtol * nrm(I))) < E
+        if numevals > maxevals
+            @warn "maxevals exceeded"
+            break
+        end
+
         s = pop!(segheap)
         I -= segvalue(s)
         E -= quaderror(s)
-        
+
         # find the segment with the largest error by percolating down the tree
-        seglist = nodelist = ()
+        branch = (); g = f; m = l; depth = d
         while sorterror(s) > ruleerror(s)
             n = pop!(s.h) # node in segment with largest error
-            seglist = (s, seglist...); nodelist = (n, nodelist...)
+            branch = ((n,s), branch...)
             # remove the contribution of the node to the segment
             s.qE -= ruleerror(s) + quaderror(n)
             s.Ik -= n.w * n.I
@@ -199,23 +198,20 @@ function adapt!(segheap::BinaryMaxHeap{T}, ::Val{d}, f::F, l::L, I, E, numevals,
             # remove the contribution of the segment to the node
             n.I -= segvalue(s)
             n.E -= quaderror(s)
+            # pre-evaluate the integrand/limits of integration
+            g = iterated_pre_eval(g, n.x, Val(depth))
+            m = fixandeliminate(m, n.x)
+            depth -= 1
         end
 
-        depth = d - length(nodelist)
-        numevals += 2*p^depth
-        if numevals > maxevals
-            @warn "stopping before maxevals exceeded"
-            break
-        end
-
-        g, m = pre_evaluate(Val(d), f, l, map(n -> n.x, nodelist))
         mid = (s.a + s.b) / 2
         s1 = evalrule(Val(depth), g,m,Val(1), s.a,mid, x,w,gw, nrm)
         s2 = evalrule(Val(depth), g,m,Val(1), mid,s.b, x,w,gw, nrm)
         segs = (s1, s2)
+        numevals += 2*p^depth
 
         # percolate up the tree to update the quadratures and heaps
-        for (n,s) in zip(nodelist,seglist)
+        for (n,s) in branch
             # replace the removed segment(s)
             push!(n.h, segs...)
             n.I += sum(segvalue,  segs)
@@ -229,12 +225,12 @@ function adapt!(segheap::BinaryMaxHeap{T}, ::Val{d}, f::F, l::L, I, E, numevals,
             s.sE =  max(ruleerror(s), sorterror(first(s.h)))
             segs = (s,)
         end
-        
+
         push!(segheap, segs...)
         I += sum(segvalue,  segs)
         E += sum(quaderror, segs)
-        # @show (depth, I, E)
     end
+
     # re-sum (paranoia about accumulated roundoff)
     I, E = treesum(segheap.valtree[1])
     for i in 2:length(segheap)
