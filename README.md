@@ -8,7 +8,7 @@ integration.
 Here is an example comparing `nested_quadgk` to the globally-adaptive `iai` for
 a challenging localized 3D integrand of a form typically found in Brillouin zone
 integration
-```julia
+```
 julia> using IteratedIntegration
 
 julia> f(x) = inv(0.01im+sum(sin, x))
@@ -31,7 +31,7 @@ nearly 5 digits of accuracy beyond what was requested
 Additionally, here is a comparison of the same integral to
 [HCubature.jl](https://github.com/JuliaMath/HCubature.jl) (note that I've
 requested a larger tolerance so that the calculation finishes relatively quickly)
-```julia
+```
 julia> using HCubature
 
 julia> function hcubature_count(f, a, b; kwargs...)
