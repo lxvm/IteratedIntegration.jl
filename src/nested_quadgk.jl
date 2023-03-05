@@ -141,7 +141,7 @@ types of the norms of a value of `f` for each iteration of integration, and
 """
 alloc_segbufs(coefficient_type, range_type, norm_type, ndim::Int) =
     ntuple(n -> alloc_segbuf(coefficient_type, range_type, norm_type), ndim)
-alloc_segbufs(coefficient_type, typesof_fx, typesof_nfx, ndim::Int) =
+alloc_segbufs(coefficient_type, typesof_fx::Tuple, typesof_nfx::Tuple, ndim::Int) =
     ntuple(n -> alloc_segbuf(coefficient_type, typesof_fx[n], typesof_nfx[n]), ndim)
 function alloc_segbufs(f, l)
     typesof_fx = iterated_inference(f, l)
