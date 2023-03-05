@@ -1,0 +1,159 @@
+\documentclass{article}
+\usepackage{physics}
+\usepackage{hyperref}
+
+\title{Globally-adaptive nested quadrature}
+\author{Lorenzo Van Mu\~noz}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+The goal of this report is to make clear how to automatically compute
+multi-dimensional integrals to a requested error tolerance in a globally
+h-adaptive manner only by using a
+one-dimensional quadrature rule. To illustrate this idea, I will present how to
+do this for a two-dimensional integral, but the arguments I make are easily
+extended to additional dimensions. I will consider the following integral
+\begin{align}
+    \label{eqn:2dint}
+    I = \int_{-1}^{1} \dd{x} \int_{a(x)}^{b(y)} \dd{y} f(x,y)
+\end{align}
+that can also be written as a nested integral
+\begin{align}
+    I = \int_{-1}^{1} \dd{x} I(x),
+    \quad
+    I(x) = \int_{a(x)}^{b(x)} \dd{y} f(x,y).
+\end{align}
+With a one-dimensional quadrature rule we can evaluate $I(x)$ and therefore $I$.
+% We can also apply an affine transformation to the variable of integration in
+% $I(x)$ by letting $u = (b(x)-a(x))y/2 - (1 + a(x) (b(x) - a(x))/2)$ to rewrite
+% $I(x)$
+% \begin{align}
+%     I(x) = \frac{\abs{b(x)-a(x)}}{2} \int_{-1}^{1} \dd{u} f(x, 2u/(b(x)-a(x)) + (1 + a(x) (b(x) - a(x))/2)).
+% \end{align}
+
+\section{Preliminaries}
+
+Let our one-dimensional quadrature rule for the standard interval $[-1,1]$ have
+quadrature nodes $\{x_i\}$ and weights $\{w_i\}$, and suppose that this rule has
+an error bound so that
+\begin{align}
+    \label{eqn:rulebound}
+    \abs{\int_{-1}^{1} \dd{x} f(x) - \sum_{i} w_i f(x_i)} < E.
+\end{align}
+There are many rules with such a bound, for example Gauss-Legendre quadrature,
+discussed by Trefethen in this article \url{https://doi.org/10.1137/060659831}.
+In practice, we do not know $E$ and instead we estimate such as with an embedded
+quadrature rule like Gauss-Kronrod quadrature.
+
+Now consider an h-adaptive quadrature for the same integral that is computed by
+applying our rule on each of the segments, $S_j$, in the collection of segments
+$\{S_j\}$ whose union is $[-1,1]$. Additionally, let $[a_j,b_j]$ be the
+endpoints of the $j$-th segment and $x_{ij}, w_{ij}$ be the nodes and weights of
+the quadrature rule applied on $S_j$. By linearity of the limits of integration, the
+original error estimate for the adaptive quadrature may be written as
+\begin{align}
+    \abs{\int_{-1}^{1} \dd{x} f(x) - \sum_{j} \sum_{i} w_{ij} f(x_{ij})}
+    &= \abs{\sum_j \int_{a_j}^{b_j} \dd{x} f(x) - \sum_{i} w_{ij} f(x_{ij})}
+\\  &\leq \sum_j \abs{\int_{a_j}^{b_j} \dd{x} f(x) - \sum_{i} w_{ij} f(x_{ij})}
+\\  &\leq \sum_j E_{j} \label{eqn:adaptbound}
+\end{align}
+where we applied the triangle inequality and \eqref{eqn:rulebound} and denote
+the error estimate for the $j$-th segment. In a global adaptive quadrature
+scheme, one maintains a heap of these segments sorted by their errors, and
+bisects the segment with largest error until convergence is achieved.
+
+\section{2D global adaptivity}
+
+Returning to \eqref{eqn:2dint}, suppose that we have an adaptive quadrature in
+the $x$ variable with segments $S_j$ whose nodes are $x_{ij}$ and whose weights
+are $w_{ij}$. Now suppose that for each $I(x_{ij})$ we evaluate that inner
+integral with segments $S_{ijn}$ whose nodes are $y_{ijmn}$ and weights are
+$v_{ijmn}=v_{mn}$. We may write our error estimate for the nested adaptive quadrature
+\begin{align}
+    &\abs{\int_{-1}^{1} \dd{x} I(x) - \sum_{j} \sum_{i} w_{ij} \sum_{n} \sum_{m} v_{mn} f(x_{ij},y_{ijmn})}
+\\  &= \abs{\sum_{j} \int_{a_j}^{b_j} \dd{x} I(x) - \sum_{i} w_{ij} \sum_{n} \sum_{m} v_{mn} f(x_{ij},y_{ijmn})}
+\\  &\leq \sum_{j} \abs{\int_{a_j}^{b_j} \dd{x} I(x) - \sum_{i} w_{ij} \sum_{n} \sum_{m} v_{mn} f(x_{ij},y_{ijmn})}
+\\  &\equiv \sum_{j} E_j
+\end{align}
+where we have used the triangle inequality over the outer segments. In the
+following step, we bound $E_j$:
+\begin{align}
+    E_j
+    = \abs{\int_{a_j}^{b_j} \dd{x} I(x) - \sum_{i} w_{ij} \sum_{n} \sum_{m} v_{mn} f(x_{ij},y_{ijmn})}
+    \leq T_1 + T_2
+\end{align}
+by applying the triangle inequality to the following terms. We choose $T_1$ as
+\begin{align}
+    T_1 = \abs{\int_{a_j}^{b_j} \dd{x} I(x) - \sum_{i} w_{ij} I(x_{ij})} < E_{jo}
+\end{align}
+which we bounded by applying \eqref{eqn:rulebound} to $I(x)$. For the inner
+segments represented by $T_2$, by the triangle inequality,
+\eqref{eqn:adaptbound}, and \eqref{eqn:rulebound} we obtain
+\begin{align}
+    T_2 &= \abs{\sum_{i} w_{ij} I(x_{ij}) - \sum_{i} w_{ij} \sum_{n} \sum_{m} v_{mn} f(x_{ij},y_{ijmn})}
+\\  &\leq \sum_{i} w_{ij} \abs{I(x_{ij}) - \sum_{n} \sum_{m} v_{mn} f(x_{ij},y_{ijmn})}
+\\  &= \sum_{i} w_{ij} \abs{\int_{a(x_{ij})}^{b(x_{ij})} \dd{y} f(x_{ij}, y) - \sum_{n} \sum_{m} v_{mn} f(x_{ij},y_{ijmn})}
+\\  &= \sum_{i} w_{ij} \abs{\sum_{n} \int_{a_n(x_{ij})}^{b_n(x_{ij})} \dd{y} f(x_{ij}, y) - \sum_{m} v_{mn} f(x_{ij},y_{ijmn})}
+\\  &\leq \sum_{i} w_{ij} \sum_{n} E_{ijn}.
+\end{align}
+In a global adaptive quadrature scheme, the global error estimator would be $E =
+\sum_{j} \qty(E_{jo} + \sum_{in} w_{ij} E_{ijn})$. We can sort the errors of all
+the terms in the sum in a heap and bisect the panel in any dimension with the
+largest error.
+
+\section{Error estimation}
+
+The robustness of error estimation schemes is relevant to the optimizations that
+a globally adaptive scheme makes. In principle, the main advantage of a globally
+adaptive scheme versus naive nested adaptive integration is that the refinement
+of the outer variables of integration can occur before the inner integrals are
+fully resolved because of the algorithm detecting the error earlier on.
+Therefore, there is a trade-off between the robustness of a depth-first search,
+as in nested adaptive integration, with the optimizations of a breadth-first
+search.
+
+Techniques to estimate the error bounds presented above are the source of some
+difficulties. To illustrate the problem, consider a 2d integral over a
+rectangular box with a large aspect ratio and suppose that the outer variable of
+integration corresponds to the longer side of the box. Clearly, the weight
+assigned to the inner integral is less than that of the outer integral due to
+its smaller length. Because of this, we are less inclined to refine the inner
+integrals unless their weighted errors exceed those of the outer integrals. As a
+result, the global adaptivity can get stuck at refining the outer integral
+without refining the inner integral.
+
+In practice, what seems to work well is to divide the panel whose un-weighted
+error estimator, $E$, is the largest. At the same time, we continue using the
+quadrature-of-errors estimator to check for global convergence.
+
+\section{Discussion}
+
+\begin{itemize}
+
+\item    This report shows that we can rigorously account for the multi-dimensional
+quadrature error. We can even use the correct error estimator for nested quadgk
+if in the error estimate of the outer integral we also add the quadrature of the
+error of the inner integrals. We might also improve nested quadgk by providing
+absolute tolerances for the inner integrals based on the estimate of the outer
+integral.
+
+\item    Storing the multi-dimensional tree of panels as a heap leads to a
+larger memory footprint for this algorithm compared to nested quadgk. I believe
+that the best data structure to do this would be a tree of heaps sorted at each
+level by the maximum in the error estimator with respect to $j$, and where the
+error at a single $j$ is the maximum of $E_{jo}$ or $E_{ijn}$ over all
+outer nodes and inner panels (the $in$ indices). Once the maximum panel in the
+heap over $j$ is selected, then the heap decides whether to refine an outer
+panel, $S_j$, or an inner panel, $S_{ijn}$, based on the larger of $E_{jo}$ or
+$E_{ijn}$ over all $i$ and $n$.
+
+\item    I believe we can also extend our arguments to nested integrals of the form
+\begin{align}
+    I = \int_{-1}^{1} \dd{x} g\qty(x, \int_{a(x)}^{b(x)} \dd{y} f(x,y))
+\end{align}
+if we know the sensitivity of $g$ to the error of the integral.
+\end{itemize}
+
+\end{document}

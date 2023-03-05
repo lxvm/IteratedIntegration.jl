@@ -37,7 +37,7 @@ iterated_inference_up(Fs::NTuple{1}, T, ::Val{d}) where d =
 """
     iterated_integral_type(f, l::AbstractIteratedLimits)
 
-Returns the output type of `iterated_integration(f, l)`
+Returns the output type of `nested_quadgk(f, l)`
 """
 function iterated_integral_type(f, l)
     T = iterated_inference(f, l)[ndims(l)]
@@ -59,8 +59,8 @@ function iterated_segs(_, l, ::Val{initdivs}) where initdivs
 end
 
 """
-    iterated_integration(f, a, b; kwargs...)
-    iterated_integration(f::AbstractIteratedIntegrand{d}, ::AbstractIteratedLimits{d}; order=7, atol=nothing, rtol=nothing, norm=norm, maxevals=typemax(Int), initdivs=ntuple(i -> Val(1), Val{d}()), segbufs=nothing) where d
+    nested_quadgk(f, a, b; kwargs...)
+    nested_quadgk(f::AbstractIteratedIntegrand{d}, ::AbstractIteratedLimits{d}; order=7, atol=nothing, rtol=nothing, norm=norm, maxevals=typemax(Int), initdivs=ntuple(i -> Val(1), Val{d}()), segbufs=nothing) where d
 
 Calls `QuadGK` to perform iterated 1D integration of `f` over a compact domain
 parametrized by `AbstractIteratedLimits`. In the case two points `a` and `b` are
@@ -88,29 +88,31 @@ unions of intervals to avoid singular points of the integrand. However, the
 `initdivs` keyword allows passing a tuple of integers which specifies the
 initial number of panels in each `quadgk` call at each level of integration.
 
-In normal usage, `iterated_integration` will allocate segment buffers. You can
+In normal usage, `nested_quadgk` will allocate segment buffers. You can
 instead pass a preallocated buffer allocated using [`alloc_segbufs`](@ref) as
 the segbuf argument. This buffer can be used across multiple calls to avoid
 repeated allocation.
 """
-function iterated_integration(f, a, b; kwargs...)
+function nested_quadgk(f, a, b; kwargs...)
     l = CubicLimits(a, b)
-    iterated_integration(ThunkIntegrand{ndims(l)}(f), l; kwargs...)
+    nested_quadgk(ThunkIntegrand{ndims(l)}(f), l; kwargs...)
 end
-function iterated_integration(f::F, l::L; order=7, atol=nothing, rtol=nothing, norm=norm, maxevals=10^7, initdivs=nothing, segbufs=nothing) where {F,L}
-    initdivs_ = initdivs === nothing ? ntuple(i -> Val(1), Val{ndims(l)}()) : initdivs
+nested_quadgk(f::F, l::L; kwargs...) where {F,L} =
+    nested_quadgk_(Val(ndims(l)), f, l, nested_quadgk_kwargs(f, l; kwargs...)...)
+
+function nested_quadgk_kwargs(f::F, l::L; order=7, atol=nothing, rtol=nothing, norm=norm, maxevals=10^7, initdivs=ntuple(i -> Val(1), Val{ndims(l)}()), segbufs=nothing) where {F,L}
     segbufs_ = segbufs === nothing ? alloc_segbufs(f, l) : segbufs
     atol_ = something(atol, zero(eltype(l)))
     rtol_ = something(rtol, iszero(atol_) ? sqrt(eps(one(eltype(l)))) : zero(eltype(l)))
-    iterated_integration_(Val(ndims(l)), f, l, order, atol_, rtol_, maxevals, norm, initdivs_, segbufs_)::iterated_integral_type(f, l)
+    (order=order, atol=atol_, rtol=rtol_, maxevals=maxevals, norm=norm, initdivs=initdivs, segbufs=segbufs_)
 end
 
-function iterated_integration_(::Val{1}, f::F, l::L, order, atol, rtol, maxevals, norm::N, initdivs, segbufs) where {F,L,N}
+function nested_quadgk_(::Val{1}, f::F, l::L, order, atol, rtol, maxevals, norm::N, initdivs, segbufs) where {F,L,N}
     # see notes on plain quadgk below
     # quadgk(f, iterated_segs(f, l, initdivs[1])...; order=order, atol=atol, rtol=rtol, maxevals=maxevals, norm=norm, segbuf=segbufs[1])
     do_quadgk(f, iterated_segs(f, l, initdivs[1]), order, atol, rtol, maxevals, norm, segbufs[1])
 end
-function iterated_integration_(::Val{d}, f::F, l::L, order, atol, rtol, maxevals, norm::N, initdivs, segbufs) where {d,F,L,N}
+function nested_quadgk_(::Val{d}, f::F, l::L, order, atol, rtol, maxevals, norm::N, initdivs, segbufs) where {d,F,L,N}
     # using plain quadgk (below) doesn't work so well because of the anonymous
     # function in the handle_infinities routine. The inference problem can be
     # fixed but it makes precompilation incredibly tedious. see the `alloc`
@@ -122,7 +124,7 @@ function iterated_integration_(::Val{d}, f::F, l::L, order, atol, rtol, maxevals
     # avoid runtime dispatch when capturing variables
     # https://docs.julialang.org/en/v1/manual/performance-tips/#man-performance-captured
     f_ = let f=f, l=l, order=order, (atol, rtol)=iterated_tol_update(f, l, atol, rtol, d), maxevals=maxevals, norm=norm, initdivs=initdivs, segbufs=segbufs
-        x -> iterated_integrand(f, first(iterated_integration_(Val(d-1), iterated_pre_eval(f, x, Val(d)), fixandeliminate(l, x), order, atol, rtol, maxevals, norm, initdivs, segbufs)), Val(d))
+        x -> iterated_integrand(f, first(nested_quadgk_(Val(d-1), iterated_pre_eval(f, x, Val(d)), fixandeliminate(l, x), order, atol, rtol, maxevals, norm, initdivs, segbufs)), Val(d))
     end
     do_quadgk(f_, iterated_segs(f, l, initdivs[d]), order, atol, rtol, maxevals, norm, segbufs[d])
 end
@@ -132,7 +134,7 @@ end
     alloc_segbufs(f, l::AbstractIteratedLimits)
 
 This helper function will allocate enough segment buffers as are needed for an
-`iterated_integration` call of integrand `f` and integration limits `l`.
+`nested_quadgk` call of integrand `f` and integration limits `l`.
 `coefficient_type` should be `eltype(l)`, `typesof_fx` should be the return type of the
 integrand `f` for each iteration of integration, `typesof_nfx` should be the
 types of the norms of a value of `f` for each iteration of integration, and
