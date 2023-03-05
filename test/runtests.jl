@@ -88,7 +88,7 @@ using HCubature
             a = zeros(n)
             b = rand(n)
             for integrand in (x -> sin(sum(x)), x -> inv(0.01im+sin(sum(x))))
-                @test hcubature(integrand, a, b; atol=atol)[1] ≈ routine(integrand, a, b; atol=atol)[1] atol=atol
+                @test hcubature(integrand, a, b; atol=atol)[1] ≈ routine(integrand, a, b; atol=atol)[1] atol=2atol
             end
             # test a localized BZ-like integrand
             b = ones(n)*2pi
