@@ -4,13 +4,14 @@
 
 \title{Globally-adaptive nested quadrature}
 \author{Lorenzo Van Mu\~noz}
-\date{2023-02-24}
+\date{\today}
 
 \begin{document}
 \maketitle
 
 The goal of this report is to make clear how to automatically compute
-multi-dimensional integrals to a requested error tolerance only by using a
+multi-dimensional integrals to a requested error tolerance in a globally
+h-adaptive manner only by using a
 one-dimensional quadrature rule. To illustrate this idea, I will present how to
 do this for a two-dimensional integral, but the arguments I make are easily
 extended to additional dimensions. I will consider the following integral
@@ -46,7 +47,7 @@ discussed by Trefethen in this article \url{https://doi.org/10.1137/060659831}.
 In practice, we do not know $E$ and instead we estimate such as with an embedded
 quadrature rule like Gauss-Kronrod quadrature.
 
-Now consider an adaptive quadrature for the same integral that is computed by
+Now consider an h-adaptive quadrature for the same integral that is computed by
 applying our rule on each of the segments, $S_j$, in the collection of segments
 $\{S_j\}$ whose union is $[-1,1]$. Additionally, let $[a_j,b_j]$ be the
 endpoints of the $j$-th segment and $x_{ij}, w_{ij}$ be the nodes and weights of
@@ -102,6 +103,31 @@ In a global adaptive quadrature scheme, the global error estimator would be $E =
 the terms in the sum in a heap and bisect the panel in any dimension with the
 largest error.
 
+\section{Error estimation}
+
+The robustness of error estimation schemes is relevant to the optimizations that
+a globally adaptive scheme makes. In principle, the main advantage of a globally
+adaptive scheme versus naive nested adaptive integration is that the refinement
+of the outer variables of integration can occur before the inner integrals are
+fully resolved because of the algorithm detecting the error earlier on.
+Therefore, there is a trade-off between the robustness of a depth-first search,
+as in nested adaptive integration, with the optimizations of a breadth-first
+search.
+
+Techniques to estimate the error bounds presented above are the source of some
+difficulties. To illustrate the problem, consider a 2d integral over a
+rectangular box with a large aspect ratio and suppose that the outer variable of
+integration corresponds to the longer side of the box. Clearly, the weight
+assigned to the inner integral is less than that of the outer integral due to
+its smaller length. Because of this, we are less inclined to refine the inner
+integrals unless their weighted errors exceed those of the outer integrals. As a
+result, the global adaptivity can get stuck at refining the outer integral
+without refining the inner integral.
+
+In practice, what seems to work well is to divide the panel whose un-weighted
+error estimator, $E$, is the largest. At the same time, we continue using the
+quadrature-of-errors estimator to check for global convergence.
+
 \section{Discussion}
 
 \begin{itemize}
@@ -117,11 +143,11 @@ integral.
 larger memory footprint for this algorithm compared to nested quadgk. I believe
 that the best data structure to do this would be a tree of heaps sorted at each
 level by the maximum in the error estimator with respect to $j$, and where the
-error at a single $j$ is the maximum of $E_{jo}$ or $w_{ij}E_{ijn}$ over all
+error at a single $j$ is the maximum of $E_{jo}$ or $E_{ijn}$ over all
 outer nodes and inner panels (the $in$ indices). Once the maximum panel in the
 heap over $j$ is selected, then the heap decides whether to refine an outer
 panel, $S_j$, or an inner panel, $S_{ijn}$, based on the larger of $E_{jo}$ or
-$w_{ij}E_{ijn}$ over all $i$ and $n$.
+$E_{ijn}$ over all $i$ and $n$.
 
 \item    I believe we can also extend our arguments to nested integrals of the form
 \begin{align}
