@@ -78,7 +78,7 @@ PolyhedralLimits(p::Polyhedron) = PolyhedralLimits{fulldim(p)}(p)
 
 # TODO: compute vrep at the same time
 fixandeliminate(l::PolyhedralLimits{d}, x) where d =
-    PolyhedralLimits{d-1}(Polyhedra.fixandeliminate(l.p, d, x))
+    PolyhedralLimits{d-1}(fixandeliminate(l.p, d, x))
 
 endpoints(l::PolyhedralLimits{d}, dim=d) where d =
     endpoints(vrep(l.p), dim)

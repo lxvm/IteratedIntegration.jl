@@ -14,7 +14,7 @@ using StaticArrays
 
 using DataStructures: BinaryMaxHeap, extract_all!
 using QuadGK: quadgk, do_quadgk, alloc_segbuf, cachedrule, Segment
-using Polyhedra: Polyhedron, VRepresentation, vrep, points, fulldim, hasallrays
+using Polyhedra: Polyhedron, VRepresentation, vrep, points, fulldim, hasallrays, coefficient_type
 
 import Base.Order.Reverse
 import QuadGK: evalrule
