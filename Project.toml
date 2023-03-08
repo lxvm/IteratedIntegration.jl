@@ -1,7 +1,7 @@
 name = "IteratedIntegration"
 uuid = "3ecdc4d6-ee34-4049-885a-a4e3631db98b"
 authors = ["lxvm <lorenzo@vanmunoz.com>"]
-version = "0.1.0"
+version = "0.1.1"
 
 [deps]
 DataStructures = "864edb3b-99cc-5e75-8d2d-829cb0a9cfe8"
@@ -15,6 +15,6 @@ StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
 julia = "1.6"
 DataStructures = "0.18"
 IntervalSets = "0.7"
-Polyhedra = "0.7"
+Polyhedra = "0.6,0.7"
 QuadGK = "2"
 StaticArrays = "1"
