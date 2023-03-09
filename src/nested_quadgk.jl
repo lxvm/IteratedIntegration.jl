@@ -58,6 +58,30 @@ function iterated_segs(_, l, ::Val{initdivs}) where initdivs
     ntuple(i -> r[i], Val(initdivs+1))
 end
 
+
+struct QuadNest{d,F,L,A,R,N,I,S}
+    D::Val{d}
+    f::F
+    l::L
+    order::Int
+    atol::A
+    rtol::R
+    maxevals::Int
+    norm::N
+    initdivs::I
+    segbufs::S
+end
+
+(q::QuadNest{1})(x) = q.f(x)
+function (q::QuadNest{d})(x) where d
+    g = iterated_pre_eval(q.f, x, q.D)
+    m = fixandeliminate(q.l, x)
+    atol, rtol = iterated_tol_update(q.f, q.l, q.atol, q.rtol, d)
+    p = QuadNest(Val(d-1), g, m, q.order, atol, rtol, q.maxevals, q.norm, q.initdivs, q.segbufs)
+    I, = do_quadgk(p, iterated_segs(g, m, q.initdivs[d-1]), q.order, q.atol, q.rtol, q.maxevals, q.norm, q.segbufs[d-1])
+    iterated_integrand(g, I, q.D)
+end
+
 """
     nested_quadgk(f, a, b; kwargs...)
     nested_quadgk(f::AbstractIteratedIntegrand{d}, ::AbstractIteratedLimits{d}; order=7, atol=nothing, rtol=nothing, norm=norm, maxevals=typemax(Int), initdivs=ntuple(i -> Val(1), Val{d}()), segbufs=nothing) where d
@@ -102,29 +126,8 @@ function nested_quadgk(f::F, l::L; order=7, atol=nothing, rtol=nothing, norm=nor
     segbufs_ = segbufs === nothing ? alloc_segbufs(f, l) : segbufs
     atol_ = something(atol, zero(eltype(l)))
     rtol_ = something(rtol, iszero(atol_) ? sqrt(eps(one(eltype(l)))) : zero(eltype(l)))
-    nested_quadgk_(Val(ndims(l)), f, l, order, atol_, rtol_, maxevals, norm, initdivs_, segbufs_)::iterated_integral_type(f, l)
-end
-
-function nested_quadgk_(::Val{1}, f::F, l::L, order, atol, rtol, maxevals, norm::N, initdivs, segbufs) where {F,L,N}
-    # see notes on plain quadgk below
-    # quadgk(f, iterated_segs(f, l, initdivs[1])...; order=order, atol=atol, rtol=rtol, maxevals=maxevals, norm=norm, segbuf=segbufs[1])
-    do_quadgk(f, iterated_segs(f, l, initdivs[1]), order, atol, rtol, maxevals, norm, segbufs[1])
-end
-function nested_quadgk_(::Val{d}, f::F, l::L, order, atol, rtol, maxevals, norm::N, initdivs, segbufs) where {d,F,L,N}
-    # using plain quadgk (below) doesn't work so well because of the anonymous
-    # function in the handle_infinities routine. The inference problem can be
-    # fixed but it makes precompilation incredibly tedious. see the `alloc`
-    # branch of lxvm/QuadGK.jl for the fix. Perhaps the fix could also be done
-    # by writing handle_infinities here instead of modifying QuadGK.jl
-    
-    # quadgk(f_, iterated_segs(f, l, initdivs[d])...; order=order, atol=atol, rtol=rtol, maxevals=maxevals, norm=norm, segbuf=segbufs[d])
-    
-    # avoid runtime dispatch when capturing variables
-    # https://docs.julialang.org/en/v1/manual/performance-tips/#man-performance-captured
-    f_ = let f=f, l=l, order=order, (atol, rtol)=iterated_tol_update(f, l, atol, rtol, d), maxevals=maxevals, norm=norm, initdivs=initdivs, segbufs=segbufs
-        x -> iterated_integrand(f, first(nested_quadgk_(Val(d-1), iterated_pre_eval(f, x, Val(d)), fixandeliminate(l, x), order, atol, rtol, maxevals, norm, initdivs, segbufs)), Val(d))
-    end
-    do_quadgk(f_, iterated_segs(f, l, initdivs[d]), order, atol, rtol, maxevals, norm, segbufs[d])
+    q = QuadNest(Val(ndims(l)), f, l, order, atol_, rtol_, maxevals, norm, initdivs_, segbufs_)
+    do_quadgk(q, iterated_segs(f, l, initdivs_[end]), order, atol_, rtol_, maxevals, norm, segbufs_[end])
 end
 
 """
