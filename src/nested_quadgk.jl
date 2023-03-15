@@ -79,7 +79,7 @@ function (q::QuadNest{d})(x) where d
     atol, rtol = iterated_tol_update(q.f, q.l, q.atol, q.rtol, d)
     p = QuadNest(Val(d-1), g, m, q.order, atol, rtol, q.maxevals, q.norm, q.initdivs, q.segbufs)
     I, = do_quadgk(p, iterated_segs(g, m, q.initdivs[d-1]), q.order, q.atol, q.rtol, q.maxevals, q.norm, q.segbufs[d-1])
-    iterated_integrand(g, I, q.D)
+    iterated_integrand(q.f, I, q.D)
 end
 
 """
