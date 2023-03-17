@@ -37,7 +37,11 @@ include("nested_quadgk.jl")
 export iai, iai_buffer
 include("iai.jl")
 
-for routine in (:nested_quadgk, :iai)
+export iai2d, iai2d_buffer
+include("iai2d.jl")
+
+
+for routine in (:nested_quadgk, :iai, :iai2d)
     routine_count = Symbol(routine, :_count)
     routine_print = Symbol(routine, :_print)
     
