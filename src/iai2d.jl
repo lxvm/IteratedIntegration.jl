@@ -185,13 +185,14 @@ function adapt2d!(segheap::BinaryMaxHeap{Segment2d{TX,TI,TE}}, f::F, l::L, I, E,
             @warn "maxevals exceeded"
             break
         end
-
-        s = pop!(segheap)
-        I -= segvalue(s)
-        E -= quaderror(s)
         
-        if s.Eo > s.Ek && abs(s.Ek - s.Eg) < 2e-3s.Ek
+        s = pop!(segheap)
+        
+        if s.Eo > s.Ek# && abs(s.Ek - s.Eg) < 2e-3s.Ek
             # refine outer panel
+            I -= segvalue(s)
+            E -= quaderror(s)
+            
             mid2d = (s.a + s.b) / 2
             s1 = evalrule2d(f,l,Val(1), s.a,mid2d, x,w,gw, nrm)
             s2 = evalrule2d(f,l,Val(1), mid2d,s.b, x,w,gw, nrm)
@@ -203,42 +204,60 @@ function adapt2d!(segheap::BinaryMaxHeap{Segment2d{TX,TI,TE}}, f::F, l::L, I, E,
             push!(segheap, s1, s2)
         else
             # refine inner panel
-            ss, i = pop!(s.h)
-            
-            xn = s.x[i]
-            wn = s.w[i]
-            gwn = s.gw[i]
+            qE = abs(s.Ek-s.Eg) # error of error quadrature, which should vanish as the error will
+            E2 = isempty(segheap) ? zero(s.E) : first(segheap).E # query the next-largest error
+            while max(atol, rtol * nrm(I)) < E && ((s.Ek >= s.Eo && s.E >= E2) || qE <= abs(s.Ek-s.Eg))
+                if numevals > maxevals
+                    @warn "maxevals exceeded"
+                    break
+                end
+                I -= segvalue(s)
+                E -= quaderror(s)
 
-            s.Ik -= wn * s.hI[i]
-            s.Ig -= gwn * s.hI[i]
-            s.hI[i] -= segvalue(ss)
+                ss, i = pop!(s.h)
+                
+                xn = s.x[i]
+                wn = s.w[i]
+                gwn = s.gw[i]
 
-            s.Ek -= wn * s.hE[i]
-            s.Eg -= gwn * s.hE[i]
-            s.hE[i] -= quaderror(ss)
+                s.Ik -= wn * s.hI[i]
+                s.Ig -= gwn * s.hI[i]
+                s.hI[i] -= segvalue(ss)
 
-            g = iterated_pre_eval(f, xn, Val(2))
+                s.Ek -= wn * s.hE[i]
+                s.Eg -= gwn * s.hE[i]
+                s.hE[i] -= quaderror(ss)
 
-            mid = (ss.a + ss.b) / 2
-            ss1 = evalrule(g, ss.a,mid, x,w,gw, nrm)
-            ss2 = evalrule(g, mid,ss.b, x,w,gw, nrm)
-            numevals += 2*p
+                g = iterated_pre_eval(f, xn, Val(2))
 
-            push!(s.h, (ss1, i), (ss2, i))
+                mid = (ss.a + ss.b) / 2
+                ss1 = evalrule(g, ss.a,mid, x,w,gw, nrm)
+                ss2 = evalrule(g, mid,ss.b, x,w,gw, nrm)
+                numevals += 2*p
 
-            s.hI[i] += segvalue(ss1) + segvalue(ss2)
-            s.Ik += wn * s.hI[i]
-            s.Ig += gwn * s.hI[i]
+                push!(s.h, (ss1, i), (ss2, i))
 
-            s.hE[i] += quaderror(ss1) + quaderror(ss2)
-            s.Ek += wn * s.hE[i]
-            s.Eg += gwn * s.hE[i]
+                s.hI[i] += segvalue(ss1) + segvalue(ss2)
+                s.Ik += wn * s.hI[i]
+                s.Ig += gwn * s.hI[i]
 
-            s.Eo = nrm(s.Ik - s.Ig)
-            s.E = s.Eo + s.Ek
+                s.hE[i] += quaderror(ss1) + quaderror(ss2)
+                s.Ek += wn * s.hE[i]
+                s.Eg += gwn * s.hE[i]
 
-            I += segvalue(s)
-            E += quaderror(s)
+                #=
+                whenever s.Eo -nrm(s.Ik - s.Ig) ~ wn * nrm(s.h[i]) is a sign that we
+                updated a Kronrod point with a much larger value that may cause
+                outer thrashing. we could force the algorithm to continue refining
+                until the new Eo goes below the original or the nex
+                =#
+                s.Eo = nrm(s.Ik - s.Ig)
+                s.E = s.Eo + s.Ek
+                # @show s.Eo s.Ek s.Eg
+
+                I += segvalue(s)
+                E += quaderror(s)
+            end
 
             push!(segheap, s)
         end
