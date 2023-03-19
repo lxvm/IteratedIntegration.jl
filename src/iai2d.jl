@@ -6,8 +6,10 @@ mutable struct Segment2d{TX,TI,TE}
     b::TX
     Ik::TI
     Ig::TI
-    rE::TE
-    qE::TE
+    E::TE
+    Eo::TE
+    Ek::TE
+    Eg::TE
     # the rule on this panel
     x::Vector{TX}
     w::Vector{TX}
@@ -24,8 +26,8 @@ segvalue(s::Segment2d) = s.Ik
 # ruleerror(s::Segment) = s.E
 # quaderror(s::Segment) = s.E
 
-ruleerror(s::Segment2d) = s.rE
-quaderror(s::Segment2d) = s.qE
+ruleerror(s::Segment2d) = s.Eo
+quaderror(s::Segment2d) = s.E
 
 Base.isless(i::Segment2d, j::Segment2d) = isless(quaderror(i), quaderror(j))
 
@@ -97,13 +99,15 @@ function evalrule2d(f::F,l::L,::Val{N}, a,b, x,w,gw, nrm) where {F,L,N}
     
     Ik = mapreduce(*, +, ws, hI)
     Ig = mapreduce(*, +, gws, hI)
-    rE = norm(Ik - Ig)
-    if isnan(rE) || isinf(rE)
+    Eo = norm(Ik - Ig)
+    if isnan(Eo) || isinf(Eo)
         throw(DomainError(a+s, "integrand produced $rE in the interval ($a, $b)"))
     end
-    qE = rE + mapreduce(*, +, ws, hE)
+    Ek = mapreduce(*, +, ws, hE)
+    Eg = mapreduce(*, +, gws, hE)
+    E = Eo + Ek
 
-    return Segment2d(segheap, oftype(s,a),oftype(s,b), Ik,Ig, rE,qE, xs,ws,gws, hI,hE)
+    return Segment2d(segheap, oftype(s,a),oftype(s,b), Ik,Ig, E,Eo,Ek,Eg, xs,ws,gws, hI,hE)
 end
 
 function evalsegs2d(f::F,l::L,::Val{N}, x,w,gw, nrm) where {F,L,N}
@@ -186,17 +190,17 @@ function adapt2d!(segheap::BinaryMaxHeap{Segment2d{TX,TI,TE}}, f::F, l::L, I, E,
         I -= segvalue(s)
         E -= quaderror(s)
         
-        if 2ruleerror(s) > quaderror(s)
+        if s.Eo > s.Ek && abs(s.Ek - s.Eg) < 2e-3s.Ek
             # refine outer panel
             mid2d = (s.a + s.b) / 2
             s1 = evalrule2d(f,l,Val(1), s.a,mid2d, x,w,gw, nrm)
             s2 = evalrule2d(f,l,Val(1), mid2d,s.b, x,w,gw, nrm)
             numevals += 2*p^2
-            
-            push!(segheap, s1, s2)
 
             I += segvalue(s1) + segvalue(s2)
             E += quaderror(s1) + quaderror(s2)
+
+            push!(segheap, s1, s2)
         else
             # refine inner panel
             ss, i = pop!(s.h)
@@ -208,7 +212,9 @@ function adapt2d!(segheap::BinaryMaxHeap{Segment2d{TX,TI,TE}}, f::F, l::L, I, E,
             s.Ik -= wn * s.hI[i]
             s.Ig -= gwn * s.hI[i]
             s.hI[i] -= segvalue(ss)
-            s.qE -= s.rE + wn * s.hE[i]
+
+            s.Ek -= wn * s.hE[i]
+            s.Eg -= gwn * s.hE[i]
             s.hE[i] -= quaderror(ss)
 
             g = iterated_pre_eval(f, xn, Val(2))
@@ -223,14 +229,18 @@ function adapt2d!(segheap::BinaryMaxHeap{Segment2d{TX,TI,TE}}, f::F, l::L, I, E,
             s.hI[i] += segvalue(ss1) + segvalue(ss2)
             s.Ik += wn * s.hI[i]
             s.Ig += gwn * s.hI[i]
-            s.rE = nrm(s.Ik - s.Ig)
-            s.hE[i] += quaderror(ss1) + quaderror(ss2)
-            s.qE += s.rE + wn * s.hE[i]
 
-            push!(segheap, s)
-            
+            s.hE[i] += quaderror(ss1) + quaderror(ss2)
+            s.Ek += wn * s.hE[i]
+            s.Eg += gwn * s.hE[i]
+
+            s.Eo = nrm(s.Ik - s.Ig)
+            s.E = s.Eo + s.Ek
+
             I += segvalue(s)
             E += quaderror(s)
+
+            push!(segheap, s)
         end
     end
 
