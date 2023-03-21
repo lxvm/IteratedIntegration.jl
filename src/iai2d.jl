@@ -1,7 +1,12 @@
+struct Node2d{TX,TI,TE}
+    s::Segment{TX,TI,TE}
+    E::TE
+    i::Int
+end
+Base.isless(i::Node2d, j::Node2d) = isless(i.E, j.E)
+
 mutable struct Segment2d{TX,TI,TE}
-    h::BinaryMaxHeap{Tuple{Segment{TX,TI,TE},Int}}
-    # this heap will sort the inner segments by their errors, although we may
-    # also want to sort by w[i] * E, which is the quadrature error
+    h::BinaryMaxHeap{Node2d{TX,TI,TE}}
     a::TX
     b::TX
     Ik::TI
@@ -54,7 +59,8 @@ function evalrule2d(f::F,l::L,::Val{N}, a,b, x,w,gw, nrm) where {F,L,N}
 
     xs[c+1] = a + s; ws[c+1] = w[end] * s; gws[c+1] = gw[end] * s
     f0 = evalnode2d(f,l,Val(N), xs[c+1], x, w, gw, nrm)
-    segheap = BinaryMaxHeap(collect(map(v -> (v, c+1), f0)))
+    # segheap = BinaryMaxHeap(collect(map(v -> Node2d(v, quaderror(v), c+1), f0)))
+    segheap = BinaryMaxHeap(collect(map(v -> Node2d(v, ws[c+1]*quaderror(v), c+1), f0)))
     sizehint!(segheap, N*p)
 
     hI = fill(sum(segvalue,  f0), p)
@@ -66,14 +72,16 @@ function evalrule2d(f::F,l::L,::Val{N}, a,b, x,w,gw, nrm) where {F,L,N}
         # j = 2i; k = p-j+1
         xs[c] = a + (1+x[end-1])*s; ws[c] = w[end-1] * s; gws[c] = zero(eltype(gw))
         f1 = evalnode2d(f,l,Val(N), xs[c], x, w, gw, nrm)
-        foreach(v -> push!(segheap, (v, c)), f1)
+        # foreach(v -> push!(segheap, Node2d(v, quaderror(v), c)), f1)
+        foreach(v -> push!(segheap, Node2d(v, ws[c]*quaderror(v), c)), f1)
         hI[c] = sum(segvalue,  f1)
         hE[c] = sum(quaderror, f1)
         
         # j = 2i; k = p-j+1
         xs[c+2] = a + (1-x[end-1])*s; ws[c+2] = ws[c]; gws[c+2] = gws[c]
         f2 = evalnode2d(f,l,Val(N), xs[c+2], x, w, gw, nrm)
-        foreach(v -> push!(segheap, (v, c+2)), f2)
+        # foreach(v -> push!(segheap, Node2d(v, quaderror(v), c+2)), f2)
+        foreach(v -> push!(segheap, Node2d(v, ws[c+2]*quaderror(v), c+2)), f2)
         hI[c+2] = sum(segvalue,  f2)
         hE[c+2] = sum(quaderror, f2)
     end
@@ -83,13 +91,15 @@ function evalrule2d(f::F,l::L,::Val{N}, a,b, x,w,gw, nrm) where {F,L,N}
         for (g, (j, k)) in ((gw[i] * s, jk), (zero(eltype(gw)), (jk[1]-1, jk[2]+1)))
             xs[j] = a + (1+x[j])*s; ws[j] = w[j] * s; gws[j] = g
             f1 = evalnode2d(f,l,Val(N), xs[j], x, w, gw, nrm)
-            foreach(v -> push!(segheap, (v, j)), f1)
+            # foreach(v -> push!(segheap, Node2d(v, quaderror(v), j)), f1)
+            foreach(v -> push!(segheap, Node2d(v, ws[j]*quaderror(v), j)), f1)
             hI[j] = sum(segvalue,  f1)
             hE[j] = sum(quaderror, f1)
 
             xs[k] = a + (1-x[j])*s; ws[k] = ws[j]; gws[k] = gws[j]
             f2 = evalnode2d(f,l,Val(N), xs[k], x, w, gw, nrm)
-            foreach(v -> push!(segheap, (v, k)), f2)
+            # foreach(v -> push!(segheap, Node2d(v, quaderror(v), k)), f2)
+            foreach(v -> push!(segheap, Node2d(v, ws[k]*quaderror(v), k)), f2)
             hI[k] = sum(segvalue,  f2)
             hE[k] = sum(quaderror, f2)
         end
@@ -180,6 +190,8 @@ end
 function adapt2d!(segheap::BinaryMaxHeap{Segment2d{TX,TI,TE}}, f::F, l::L, I, E, numevals, x,w,gw,p, atol, rtol, maxevals, nrm) where {TX,TI,TE,F,L}
     # Pop the biggest-error segment (in any dimension) and subdivide (h-adaptation)
     # until convergence is achieved or maxevals is exceeded.
+    refineinner = true
+
     while (tol = max(atol, rtol * nrm(I))) < E
         if numevals > maxevals
             @warn "maxevals exceeded"
@@ -187,12 +199,71 @@ function adapt2d!(segheap::BinaryMaxHeap{Segment2d{TX,TI,TE}}, f::F, l::L, I, E,
         end
         
         s = pop!(segheap)
-        
-        if s.Eo > s.Ek# && abs(s.Ek - s.Eg) < 2e-3s.Ek
+
+        # refine inner panel till we enter the convergence regime
+        while refineinner || any(max.(atol, rtol*nrm.(s.hI)) .< s.hE) #|| (s.Eo <= s.Ek && max(atol, rtol * nrm(I)) < E) # && ((s.Ek >= s.Eo && s.E >= E2) || qE <= abs(s.Ek-s.Eg))
+            if numevals > maxevals
+                @warn "maxevals exceeded"
+                break
+            end
+            # println(s.E, "\t", s.Eo, "\t", s.Ek,"\t", nrm(s.Ik), "\t", numevals)
+            refineinner = false
+            
+            I -= segvalue(s)
+            E -= quaderror(s)
+
+            n = pop!(s.h)
+            ss = n.s
+            i  = n.i
+            
+            xn = s.x[i]
+            wn = s.w[i]
+            gwn = s.gw[i]
+
+            s.Ik -= wn * s.hI[i]
+            s.Ig -= gwn * s.hI[i]
+            s.hI[i] -= segvalue(ss)
+
+            s.Ek -= wn * s.hE[i]
+            s.Eg -= gwn * s.hE[i]
+            s.hE[i] -= quaderror(ss)
+
+            g = iterated_pre_eval(f, xn, Val(2))
+
+            mid = (ss.a + ss.b) / 2
+            ss1 = evalrule(g, ss.a,mid, x,w,gw, nrm)
+            ss2 = evalrule(g, mid,ss.b, x,w,gw, nrm)
+            numevals += 2*p
+
+            # push!(s.h, Node2d(ss1, quaderror(ss1), i), Node2d(ss2, quaderror(ss2), i))
+            push!(s.h, Node2d(ss1, wn*quaderror(ss1), i), Node2d(ss2, wn*quaderror(ss2), i))
+
+            s.hI[i] += segvalue(ss1) + segvalue(ss2)
+            s.Ik += wn * s.hI[i]
+            s.Ig += gwn * s.hI[i]
+
+            s.hE[i] += quaderror(ss1) + quaderror(ss2)
+            s.Ek += wn * s.hE[i]
+            s.Eg += gwn * s.hE[i]
+
+            #=
+            whenever s.Eo -nrm(s.Ik - s.Ig) ~ wn * nrm(s.h[i]) is a sign that we
+            updated a Kronrod point with a much larger value that may cause
+            outer thrashing. we could force the algorithm to continue refining
+            until the new Eo goes below the original or the nex
+            =#
+            s.Eo = nrm(s.Ik - s.Ig)
+            s.E = s.Eo + s.Ek
+            # @show s.Eo s.Ek s.Eg
+            I += segvalue(s)
+            E += quaderror(s)
+        end
+
+        if s.Eo > s.Ek
             # refine outer panel
             I -= segvalue(s)
             E -= quaderror(s)
-            
+
             mid2d = (s.a + s.b) / 2
             s1 = evalrule2d(f,l,Val(1), s.a,mid2d, x,w,gw, nrm)
             s2 = evalrule2d(f,l,Val(1), mid2d,s.b, x,w,gw, nrm)
@@ -203,64 +274,9 @@ function adapt2d!(segheap::BinaryMaxHeap{Segment2d{TX,TI,TE}}, f::F, l::L, I, E,
 
             push!(segheap, s1, s2)
         else
-            # refine inner panel
-            qE = abs(s.Ek-s.Eg) # error of error quadrature, which should vanish as the error will
-            E2 = isempty(segheap) ? zero(s.E) : first(segheap).E # query the next-largest error
-            while max(atol, rtol * nrm(I)) < E && ((s.Ek >= s.Eo && s.E >= E2) || qE <= abs(s.Ek-s.Eg))
-                if numevals > maxevals
-                    @warn "maxevals exceeded"
-                    break
-                end
-                I -= segvalue(s)
-                E -= quaderror(s)
-
-                ss, i = pop!(s.h)
-                
-                xn = s.x[i]
-                wn = s.w[i]
-                gwn = s.gw[i]
-
-                s.Ik -= wn * s.hI[i]
-                s.Ig -= gwn * s.hI[i]
-                s.hI[i] -= segvalue(ss)
-
-                s.Ek -= wn * s.hE[i]
-                s.Eg -= gwn * s.hE[i]
-                s.hE[i] -= quaderror(ss)
-
-                g = iterated_pre_eval(f, xn, Val(2))
-
-                mid = (ss.a + ss.b) / 2
-                ss1 = evalrule(g, ss.a,mid, x,w,gw, nrm)
-                ss2 = evalrule(g, mid,ss.b, x,w,gw, nrm)
-                numevals += 2*p
-
-                push!(s.h, (ss1, i), (ss2, i))
-
-                s.hI[i] += segvalue(ss1) + segvalue(ss2)
-                s.Ik += wn * s.hI[i]
-                s.Ig += gwn * s.hI[i]
-
-                s.hE[i] += quaderror(ss1) + quaderror(ss2)
-                s.Ek += wn * s.hE[i]
-                s.Eg += gwn * s.hE[i]
-
-                #=
-                whenever s.Eo -nrm(s.Ik - s.Ig) ~ wn * nrm(s.h[i]) is a sign that we
-                updated a Kronrod point with a much larger value that may cause
-                outer thrashing. we could force the algorithm to continue refining
-                until the new Eo goes below the original or the nex
-                =#
-                s.Eo = nrm(s.Ik - s.Ig)
-                s.E = s.Eo + s.Ek
-                # @show s.Eo s.Ek s.Eg
-
-                I += segvalue(s)
-                E += quaderror(s)
-            end
-
             push!(segheap, s)
         end
+        refineinner = true
     end
 
     # re-sum (paranoia about accumulated roundoff) TODO
