@@ -43,12 +43,12 @@ for routine in (:nested_quadgk, :iai)
     
     @eval export $routine_count, $routine_print
 
-    @eval function $routine_count(f, a, b; kwargs...)
+    @eval $routine_count(f, a, b; kwargs...) =
+        $routine_count(f, CubicLimits(a, b); kwargs...)
+    @eval function $routine_count(f, l; kwargs...)
         numevals = 0
-        I, E = $routine(a, b; kwargs...) do x
-            numevals += 1
-            f(x)
-        end
+        g = ThunkIntegrand{ndims(l)}(x -> (numevals += 1; f(x)))
+        I, E = $routine(g, l; kwargs...)
         return (I, E, numevals)
     end
 
