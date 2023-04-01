@@ -39,7 +39,8 @@ Base.isless(i::HeapSegment, j::HeapSegment) = isless(sorterror(i), sorterror(j))
 evalrule(::Val{1}, f,l,::Val, a,b, x,w,gw, nrm) = evalrule(f, a,b, x,w,gw, nrm)
 
 function evalsegs(::Val{d}, f::F,l::L,::Val{N}, x,w,gw, nrm) where {d,F,L,N}
-    s = iterated_segs(f, l, Val(N))
+    a, b = endpoints(l)
+    s = iterated_segs(f, a, b, Val(N))
     ntuple(i -> evalrule(Val(d), f,l,Val(N),s[i],s[i+1], x,w,gw, nrm), Val(N))
 end
 
