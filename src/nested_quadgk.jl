@@ -97,7 +97,7 @@ end
 
 """
     nested_quadgk(f, a, b; kwargs...)
-    nested_quadgk(f::AbstractIteratedIntegrand{d}, ::AbstractIteratedLimits{d}; order=7, atol=nothing, rtol=nothing, norm=norm, maxevals=typemax(Int), initdivs=ntuple(i -> Val(1), Val{d}()), segbufs=nothing) where d
+    nested_quadgk(f::AbstractIteratedIntegrand{d}, ::AbstractIteratedLimits{d}; order=7, atol=nothing, rtol=nothing, norm=norm, maxevals=typemax(Int), initdivs=ntuple(i -> Val(1), Val{d}()), segbufs=nothing, t=0.5) where d
 
 Calls `QuadGK` to perform iterated 1D integration of `f` over a compact domain
 parametrized by `AbstractIteratedLimits`. In the case two points `a` and `b` are
@@ -111,6 +111,14 @@ defaults to `sqrt(eps)` in the precision of the norm of the return type), an
 absolute error tolerance `atol` (defaults to 0), a maximum number of function
 evaluations `maxevals` for each nested integral (defaults to `10^7`), and the
 `order` of the integration rule (defaults to 7).
+
+A tuning parameter `t` is provided that distributes the effort between inner and
+outer integrals, and can take values in the open interval ``(0,1)``.
+Specifically, `t` represents the fraction of error attributed to the outer
+integral versus the inner integral. (In 1d, the effective value of `t` is 1.)
+When only using an absolute tolerance, this parameter preserves the error
+estimation so that the final result is correct to within the absolute tolerance,
+unless the algorithm fails for other reasons.
 
 The algorithm is an adaptive Gauss-Kronrod integration technique: the integral
 in each interval is estimated using a Kronrod rule (`2*order+1` points) and the
@@ -135,6 +143,7 @@ function nested_quadgk(f, a, b; kwargs...)
     nested_quadgk(ThunkIntegrand{ndims(l)}(f), l; kwargs...)
 end
 function nested_quadgk(f::F, l::L; order=7, atol=nothing, rtol=nothing, norm=norm, maxevals=10^7, initdivs=nothing, segbufs=nothing, t=0.5) where {F,L}
+    @assert 0 < t < 1 "t=$t is not in (0,1)"
     initdivs_ = initdivs === nothing ? ntuple(i -> Val(1), Val{ndims(l)}()) : initdivs
     segbufs_ = segbufs === nothing ? alloc_segbufs(f, l) : segbufs
     atol_ = something(atol, zero(eltype(l)))
