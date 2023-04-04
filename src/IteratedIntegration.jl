@@ -28,7 +28,7 @@ include("definitions.jl")
 export CubicLimits, TetrahedralLimits, PolyhedralLimits, ProductLimits, TranslatedLimits
 include("iterated_limits.jl")
 
-export ThunkIntegrand, IteratedIntegrand
+export ThunkIntegrand, IteratedIntegrand, ProductIteratedIntegrand
 include("iterated_integrands.jl")
 
 export nested_quadgk
@@ -40,7 +40,7 @@ include("iai.jl")
 for routine in (:nested_quadgk, :iai)
     routine_count = Symbol(routine, :_count)
     routine_print = Symbol(routine, :_print)
-    
+
     @eval export $routine_count, $routine_print
 
     @eval $routine_count(f, a, b; kwargs...) =
