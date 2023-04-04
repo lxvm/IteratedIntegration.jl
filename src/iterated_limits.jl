@@ -96,16 +96,18 @@ Construct a collection of limits which yields the first limit followed by the
 second, and so on. The inner limits are not allowed to depend on the outer ones.
 The outermost variable of integration should be placed first, i.e.
 ``\\int_{\\Omega} \\int_{\\Gamma}`` should be `ProductLimits(Ω, Γ)`.
+Although changing the order of the limits should not change the results, putting the
+shortest limits first may save `nested_quadgk` some work.
 """
 struct ProductLimits{d,T,L} <: AbstractIteratedLimits{d,T}
     lims::L
     ProductLimits{d,T}(lims::L) where {d,T,L<:Tuple{Vararg{AbstractIteratedLimits}}} =
-        ProductLimits{d,T,L}(lims)
+        new{d,T,L}(lims)
 end
 ProductLimits(lims::AbstractIteratedLimits...) = ProductLimits(lims)
 function ProductLimits(lims::L) where {L<:Tuple{Vararg{AbstractIteratedLimits}}}
     d = mapreduce(ndims, +, lims; init=0)
-    T = mapreduce(coefficient_type, promote_type, lims)
+    T = mapreduce(eltype, promote_type, lims)
     ProductLimits{d,T}(lims)
 end
 
@@ -114,7 +116,7 @@ endpoints(l::ProductLimits) = endpoints(l.lims[1])
 fixandeliminate(l::ProductLimits{d,T}, x) where {d,T} =
     ProductLimits{d-1,T}(Base.setindex(l.lims, fixandeliminate(l.lims[1], x), 1))
 fixandeliminate(l::ProductLimits{d,T,<:Tuple{<:AbstractIteratedLimits{1},Vararg{AbstractIteratedLimits}}}, x) where {d,T} =
-    ProductLimits{d-1,T}(Base.front(l.lims))
+    ProductLimits{d-1,T}(Base.tail(l.lims))
 
 
 """
