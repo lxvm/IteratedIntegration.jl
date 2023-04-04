@@ -1,10 +1,5 @@
-"""
-    iterated_tol_update(f, a, b, atol, t)
-
-Choose a new set of error tolerances for the next inner integral to bound the
-total error from that by `atol*(1-t)`
-"""
-iterated_tol_update(f, a, b, atol, t) = atol*(1-t)/(b - a)
+iterated_inner_tol(atol, a, b) = atol/(b - a)
+iterated_outer_tol(atol, a, b) = atol
 
 """
     iterated_inference(F, T, ::Val{d}) where d
@@ -71,7 +66,6 @@ struct QuadNest{d,F,L,T,A,R,N,I,S}
     norm::N
     initdivs::I
     segbufs::S
-    t::Float64
 end
 
 function do_nested_quadgk(q::QuadNest{1})
@@ -80,24 +74,24 @@ function do_nested_quadgk(q::QuadNest{1})
 end
 
 function (q::QuadNest{d})(x) where d
-    atol = iterated_tol_update(q.f, q.a, q.b, q.atol, q.t)
+    atol = iterated_inner_tol(q.atol, q.a, q.b)
     g = iterated_pre_eval(q.f, x, q.D)
     m = fixandeliminate(q.l, x)
     a, b = endpoints(m)
-    p = QuadNest(Val(d-1), g, m,a,b, q.order, atol, q.rtol, q.maxevals, q.norm, q.initdivs[1:d-1], q.segbufs[1:d-1], q.t)
+    p = QuadNest(Val(d-1), g, m,a,b, q.order, atol, q.rtol, q.maxevals, q.norm, q.initdivs[1:d-1], q.segbufs[1:d-1])
     I, = do_nested_quadgk(p)
     iterated_integrand(q.f, I, q.D)
 end
 
 function do_nested_quadgk(q::QuadNest{d}) where d
     segs = iterated_segs(q.f, q.a, q.b, q.initdivs[d])
-    atol = q.atol*q.t # we will control error so that t% comes from outer integral
+    atol = iterated_outer_tol(q.atol, q.a, q.b)
     do_quadgk(q, segs, q.order, atol, q.rtol, q.maxevals, q.norm, q.segbufs[d])
 end
 
 """
     nested_quadgk(f, a, b; kwargs...)
-    nested_quadgk(f::AbstractIteratedIntegrand{d}, ::AbstractIteratedLimits{d}; order=7, atol=nothing, rtol=nothing, norm=norm, maxevals=typemax(Int), initdivs=ntuple(i -> Val(1), Val{d}()), segbufs=nothing, t=0.5) where d
+    nested_quadgk(f::AbstractIteratedIntegrand{d}, ::AbstractIteratedLimits{d}; order=7, atol=nothing, rtol=nothing, norm=norm, maxevals=typemax(Int), initdivs=ntuple(i -> Val(1), Val{d}()), segbufs=nothing) where d
 
 Calls `QuadGK` to perform iterated 1D integration of `f` over a compact domain
 parametrized by `AbstractIteratedLimits`. In the case two points `a` and `b` are
@@ -111,14 +105,6 @@ defaults to `sqrt(eps)` in the precision of the norm of the return type), an
 absolute error tolerance `atol` (defaults to 0), a maximum number of function
 evaluations `maxevals` for each nested integral (defaults to `10^7`), and the
 `order` of the integration rule (defaults to 7).
-
-A tuning parameter `t` is provided that distributes the effort between inner and
-outer integrals, and can take values in the open interval ``(0,1)``.
-Specifically, `t` represents the fraction of error attributed to the outer
-integral versus the inner integral. (In 1d, the effective value of `t` is 1.)
-When only using an absolute tolerance, this parameter preserves the error
-estimation so that the final result is correct to within the absolute tolerance,
-unless the algorithm fails for other reasons.
 
 The algorithm is an adaptive Gauss-Kronrod integration technique: the integral
 in each interval is estimated using a Kronrod rule (`2*order+1` points) and the
@@ -142,14 +128,13 @@ function nested_quadgk(f, a, b; kwargs...)
     l = CubicLimits(a, b)
     nested_quadgk(ThunkIntegrand{ndims(l)}(f), l; kwargs...)
 end
-function nested_quadgk(f::F, l::L; order=7, atol=nothing, rtol=nothing, norm=norm, maxevals=10^7, initdivs=nothing, segbufs=nothing, t=0.5) where {F,L}
-    @assert 0 < t < 1 "t=$t is not in (0,1)"
+function nested_quadgk(f::F, l::L; order=7, atol=nothing, rtol=nothing, norm=norm, maxevals=10^7, initdivs=nothing, segbufs=nothing) where {F,L}
     initdivs_ = initdivs === nothing ? ntuple(i -> Val(1), Val{ndims(l)}()) : initdivs
     segbufs_ = segbufs === nothing ? alloc_segbufs(f, l) : segbufs
     atol_ = something(atol, zero(eltype(l)))
     rtol_ = something(rtol, iszero(atol_) ? sqrt(eps(one(eltype(l)))) : zero(eltype(l)))
     a, b = endpoints(l)
-    q = QuadNest(Val(ndims(l)), f, l,a,b, order, atol_, rtol_, maxevals, norm, initdivs_, segbufs_, t)
+    q = QuadNest(Val(ndims(l)), f, l,a,b, order, atol_, rtol_, maxevals, norm, initdivs_, segbufs_)
     do_nested_quadgk(q)
 end
 
