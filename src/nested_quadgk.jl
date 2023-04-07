@@ -1,10 +1,5 @@
-"""
-    iterated_tol_update(f, l, atol, rtol)
-
-Choose a new set of error tolerances for the next inner integral. By default
-returns `(atol, rtol)` unchanged.
-"""
-iterated_tol_update(f, l, atol, rtol, dim) = (atol, rtol)
+iterated_inner_tol(atol, a, b) = atol/(b - a)
+iterated_outer_tol(atol, a, b) = atol
 
 """
     iterated_inference(F, T, ::Val{d}) where d
@@ -12,8 +7,8 @@ iterated_tol_update(f, l, atol, rtol, dim) = (atol, rtol)
 
 Returns a tuple of the return types of f after each variable of integration
 """
-iterated_inference(F, T, ::Val{d}) where d =
-    iterated_inference_up(iterated_inference_down(F, T, Val(d)), T, Val(d))
+iterated_inference(F, T, vald) =
+    iterated_inference_up(iterated_inference_down(F, T, vald), T, vald)
 iterated_inference(f, l) =
     iterated_inference(typeof(f), eltype(l), Val(ndims(l)))
 
@@ -45,24 +40,25 @@ function iterated_integral_type(f, l)
 end
 
 """
-    iterated_segs(f, l::AbstractIteratedLimits, ::Val{initdivs}) where initdivs
+    iterated_segs(f, a, b, ::Val{initdivs}) where initdivs
 
 Returns a `Tuple` of integration nodes that are passed to `QuadGK` to initialize
 the segments for adaptive integration. By default, returns `initdivs` equally
-spaced panels on `endpoints(l)`. If `f` is localized, specializing this
+spaced panels on interval `(a, b)`. If `f` is localized, specializing this
 function can also help avoid errors when `QuadGK` fails to adapt.
 """
-function iterated_segs(_, l, ::Val{initdivs}) where initdivs
-    a, b = endpoints(l)
+function iterated_segs(_, a, b, ::Val{initdivs}) where initdivs
     r = range(a, b, length=initdivs+1)
     ntuple(i -> r[i], Val(initdivs+1))
 end
 
 
-struct QuadNest{d,F,L,A,R,N,I,S}
+struct QuadNest{d,F,L,T,A,R,N,I,S}
     D::Val{d}
     f::F
     l::L
+    a::T
+    b::T
     order::Int
     atol::A
     rtol::R
@@ -72,14 +68,25 @@ struct QuadNest{d,F,L,A,R,N,I,S}
     segbufs::S
 end
 
-(q::QuadNest{1})(x) = q.f(x)
+function do_nested_quadgk(q::QuadNest{1})
+    segs = iterated_segs(q.f, q.a, q.b, q.initdivs[1])
+    do_quadgk(q.f, segs, q.order, q.atol, q.rtol, q.maxevals, q.norm, q.segbufs[1])
+end
+
 function (q::QuadNest{d})(x) where d
+    atol = iterated_inner_tol(q.atol, q.a, q.b)
     g = iterated_pre_eval(q.f, x, q.D)
     m = fixandeliminate(q.l, x)
-    atol, rtol = iterated_tol_update(q.f, q.l, q.atol, q.rtol, d)
-    p = QuadNest(Val(d-1), g, m, q.order, atol, rtol, q.maxevals, q.norm, q.initdivs, q.segbufs)
-    I, = do_quadgk(p, iterated_segs(g, m, q.initdivs[d-1]), q.order, q.atol, q.rtol, q.maxevals, q.norm, q.segbufs[d-1])
+    a, b = endpoints(m)
+    p = QuadNest(Val(d-1), g, m,a,b, q.order, atol, q.rtol, q.maxevals, q.norm, q.initdivs[1:d-1], q.segbufs[1:d-1])
+    I, = do_nested_quadgk(p)
     iterated_integrand(q.f, I, q.D)
+end
+
+function do_nested_quadgk(q::QuadNest{d}) where d
+    segs = iterated_segs(q.f, q.a, q.b, q.initdivs[d])
+    atol = iterated_outer_tol(q.atol, q.a, q.b)
+    do_quadgk(q, segs, q.order, atol, q.rtol, q.maxevals, q.norm, q.segbufs[d])
 end
 
 """
@@ -126,8 +133,9 @@ function nested_quadgk(f::F, l::L; order=7, atol=nothing, rtol=nothing, norm=nor
     segbufs_ = segbufs === nothing ? alloc_segbufs(f, l) : segbufs
     atol_ = something(atol, zero(eltype(l)))
     rtol_ = something(rtol, iszero(atol_) ? sqrt(eps(one(eltype(l)))) : zero(eltype(l)))
-    q = QuadNest(Val(ndims(l)), f, l, order, atol_, rtol_, maxevals, norm, initdivs_, segbufs_)
-    do_quadgk(q, iterated_segs(f, l, initdivs_[end]), order, atol_, rtol_, maxevals, norm, segbufs_[end])
+    a, b = endpoints(l)
+    q = QuadNest(Val(ndims(l)), f, l,a,b, order, atol_, rtol_, maxevals, norm, initdivs_, segbufs_)
+    do_nested_quadgk(q)
 end
 
 """

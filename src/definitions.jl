@@ -64,8 +64,24 @@ of the innermost integral that is passed by the integration routine via `f(x)`.
 """
 function iterated_integrand end
 
+
+"""
+    iterated_vars(f::AbstractIteratedIntegrand)
+    iterated_vars(f::AbstractIteratedIntegrand, x)
+
+Dump the variables of integration stored by `f`, optionally including `x`
+"""
+function iterated_vars end
+
 # abstract methods
 
+Base.ndims(::AbstractIteratedIntegrand{d}) where {d} = d
+iterated_pre_eval(f::AbstractIteratedIntegrand{d}, x) where {d} =
+    iterated_pre_eval(f, x, Val(d))
+iterated_integrand(f::AbstractIteratedIntegrand{d}, x) where {d} =
+    iterated_integrand(f, x, Val(d))
+iterated_vars(f::AbstractIteratedIntegrand, x) =
+    iterated_vars(iterated_pre_eval(f, x))
 (f::AbstractIteratedIntegrand{1})(x::NTuple{1}) =
     iterated_integrand(f, x[1], Val(1))
 (f::AbstractIteratedIntegrand)(::Tuple{}) = f
