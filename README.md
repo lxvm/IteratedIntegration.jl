@@ -14,15 +14,15 @@ julia> using IteratedIntegration
 julia> f(x) = inv(0.01im+sum(sin, x))
 
 julia> @time I1, = nested_quadgk_count(f, (0,0,0), (2pi,2pi,2pi); atol=1e-5)
- 13.810075 seconds (187.29 M allocations: 2.791 GiB, 4.05% gc time)
-(3.014355431929516e-11 - 221.4503334458075im, 6.5132132917468245e-6, 187271895)
+ 20.840139 seconds (270.43 M allocations: 4.030 GiB, 3.90% gc time)
+(3.0500657555165844e-11 - 221.4503334456331im, 6.513167789370278e-6, 270412665)
 
 julia> @time I2, = iai_count(f, (0,0,0), (2pi,2pi,2pi); atol=1e-5)
  85.821637 seconds (521.70 M allocations: 13.221 GiB, 2.34% gc time)
 (1.9539925233402755e-14 - 221.45033344593668im, 8.248907526206854e-6, 151635225)
 
 julia> abs(I1-I2) # check how closely solutions agree to within tolerance
-1.32642633231035e-10
+3.050987164194743e-10
 ```
 It is interesting that `iai` has about 20% fewer function evaluations than
 `nested_quadgk`, however both routines appear to be returning a solution with
