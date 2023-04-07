@@ -40,7 +40,8 @@ Base.isless(i::Segment2d, j::Segment2d) = isless(quaderror(i), quaderror(j))
 function evalnode2d(f::F,l::L,::Val{N}, xn, x,w,gw,nrm) where {F,L,N}
     g = iterated_pre_eval(f, xn, Val(2))
     m = fixandeliminate(l, xn)
-    s = iterated_segs(g, m, Val(N))
+    a, b = endpoints(m)
+    s = iterated_segs(g, a,b, Val(N))
     ntuple(i -> evalrule(g,s[i],s[i+1], x,w,gw, nrm), Val(N))
 end
 
@@ -76,7 +77,7 @@ function evalrule2d(f::F,l::L,::Val{N}, a,b, x,w,gw, nrm) where {F,L,N}
         foreach(v -> push!(segheap, Node2d(v, ws[c]*quaderror(v), c)), f1)
         hI[c] = sum(segvalue,  f1)
         hE[c] = sum(quaderror, f1)
-        
+
         # j = 2i; k = p-j+1
         xs[c+2] = a + (1-x[end-1])*s; ws[c+2] = ws[c]; gws[c+2] = gws[c]
         f2 = evalnode2d(f,l,Val(N), xs[c+2], x, w, gw, nrm)
@@ -104,9 +105,9 @@ function evalrule2d(f::F,l::L,::Val{N}, a,b, x,w,gw, nrm) where {F,L,N}
             hE[k] = sum(quaderror, f2)
         end
     end
-    
+
     # Ik and Ig are integrals via Kronrod and Gauss rules, respectively
-    
+
     Ik = mapreduce(*, +, ws, hI)
     Ig = mapreduce(*, +, gws, hI)
     Eo = norm(Ik - Ig)
@@ -121,7 +122,8 @@ function evalrule2d(f::F,l::L,::Val{N}, a,b, x,w,gw, nrm) where {F,L,N}
 end
 
 function evalsegs2d(f::F,l::L,::Val{N}, x,w,gw, nrm) where {F,L,N}
-    s = iterated_segs(f, l, Val(N))
+    a, b = endpoints(l)
+    s = iterated_segs(f, a,b, Val(N))
     ntuple(i -> evalrule2d(f,l,Val(N),s[i],s[i+1], x,w,gw, nrm), Val(N))
 end
 
@@ -147,7 +149,7 @@ end
 """
     iai2d(f, a, b; kwargs...)
     iai2d(f::AbstractIteratedIntegrand{2}, l::AbstractLimits{2}; order=7, atol=0, rtol=sqrt(eps()), norm=norm, maxevals=typemax(Int), segbuf=nothing)
-    
+
 Two-dimensional globally-adaptive quadrature via iterated integration using
 Gauss-Kronrod rules. Interface is similar to [`nested_quadgk`](@ref).
 """
@@ -162,7 +164,7 @@ function do_iai2d(f::F, l::L, ::Val{N}, n, atol, rtol, maxevals, nrm, buf) where
     T = eltype(l)
     x,w,gw = cachedrule(T,n)
     p = 2n+1
-    
+
     @assert N ≥ 1
     (numevals = (N*p)^2) <= maxevals || throw(ArgumentError("maxevals exceeded on initial evaluation"))
     segs = evalsegs2d(f,l,Val(N), x,w,gw, nrm)
@@ -192,30 +194,37 @@ function adapt2d!(segheap::BinaryMaxHeap{Segment2d{TX,TI,TE}}, f::F, l::L, I, E,
     # until convergence is achieved or maxevals is exceeded.
     refineinner = true
 
+    a_out, b_out = endpoints(l)
     while (tol = max(atol, rtol * nrm(I))) < E
         if numevals > maxevals
             @warn "maxevals exceeded"
             break
         end
-        
+
         s = pop!(segheap)
 
-        # refine inner panel till we enter the convergence regime
-        while refineinner || any(max.(atol, rtol*nrm.(s.hI)) .< s.hE) #|| (s.Eo <= s.Ek && max(atol, rtol * nrm(I)) < E) # && ((s.Ek >= s.Eo && s.E >= E2) || qE <= abs(s.Ek-s.Eg))
-            if numevals > maxevals
-                @warn "maxevals exceeded"
-                break
-            end
-            # println(s.E, "\t", s.Eo, "\t", s.Ek,"\t", nrm(s.Ik), "\t", numevals)
-            refineinner = false
-            
+        if s.Eo > s.Ek * (b_out - a_out) / (s.b - s.a)
+            # refine outer panel
+            I -= segvalue(s)
+            E -= quaderror(s)
+
+            mid2d = (s.a + s.b) / 2
+            s1 = evalrule2d(f,l,Val(1), s.a,mid2d, x,w,gw, nrm)
+            s2 = evalrule2d(f,l,Val(1), mid2d,s.b, x,w,gw, nrm)
+            numevals += 2*p^2
+
+            I += segvalue(s1) + segvalue(s2)
+            E += quaderror(s1) + quaderror(s2)
+
+            push!(segheap, s1, s2)
+        else
             I -= segvalue(s)
             E -= quaderror(s)
 
             n = pop!(s.h)
             ss = n.s
             i  = n.i
-            
+
             xn = s.x[i]
             wn = s.w[i]
             gwn = s.gw[i]
@@ -246,34 +255,11 @@ function adapt2d!(segheap::BinaryMaxHeap{Segment2d{TX,TI,TE}}, f::F, l::L, I, E,
             s.Ek += wn * s.hE[i]
             s.Eg += gwn * s.hE[i]
 
-            #=
-            whenever s.Eo -nrm(s.Ik - s.Ig) ~ wn * nrm(s.h[i]) is a sign that we
-            updated a Kronrod point with a much larger value that may cause
-            outer thrashing. we could force the algorithm to continue refining
-            until the new Eo goes below the original or the nex
-            =#
             s.Eo = nrm(s.Ik - s.Ig)
             s.E = s.Eo + s.Ek
-            # @show s.Eo s.Ek s.Eg
             I += segvalue(s)
             E += quaderror(s)
-        end
 
-        if s.Eo > s.Ek
-            # refine outer panel
-            I -= segvalue(s)
-            E -= quaderror(s)
-
-            mid2d = (s.a + s.b) / 2
-            s1 = evalrule2d(f,l,Val(1), s.a,mid2d, x,w,gw, nrm)
-            s2 = evalrule2d(f,l,Val(1), mid2d,s.b, x,w,gw, nrm)
-            numevals += 2*p^2
-
-            I += segvalue(s1) + segvalue(s2)
-            E += quaderror(s1) + quaderror(s2)
-
-            push!(segheap, s1, s2)
-        else
             push!(segheap, s)
         end
         refineinner = true
