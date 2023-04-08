@@ -1,45 +1,43 @@
-mutable struct HeapNode{T,TX,TI,TE}
-    h::BinaryMaxHeap{T}
-    I::TI
-    E::TE
-    x::TX
-    w::TX
-    g::TX
+struct Node{V,K}
+    val::V
+    key::K
+    idx::Int64
 end
-mutable struct HeapSegment{T,TX,TI,TE}
-    h::BinaryMaxHeap{HeapNode{T,TX,TI,TE}}
+Base.getproperty(n::Node, name::Symbol) = getproperty(getfield(n, :val), name)
+Base.setproperty!(n::Node, f::Symbol, v) = setproperty!(getfield(n, :val), f, v)
+
+mutable struct HeapSegment{S,TX,TI,TE}
+    h::BinaryMaxHeap{Node{S,TE}}
     a::TX
     b::TX
     Ik::TI
     Ig::TI
-    rE::TE
-    qE::TE
-    sE::TE
+    E::TE   # total error on this segment
+    Eo::TE  # outer error estimator on this segment
+    Ek::TE  # inner error estimator on this segment
+    # the rule on this panel
+    x::Vector{TX}
+    w::Vector{TX}
+    gw::Vector{TX}
+    # the estimates and errors of the inner quadratures at all nodes
+    hI::Vector{TI}
+    hE::Vector{TE}
 end
 
 segvalue(s::Segment) = s.I
 segvalue(s::HeapSegment) = s.Ik
+segvalue(n::Node) = segvalue(getfield(n, :val))
 
-# distinguish between the GK rule error and the multidimensional quadrature error
-ruleerror(s::Segment) = s.E
-quaderror(s::Segment) = s.E
-sorterror(s::Segment) = s.E
+quaderror(s::Union{Segment,HeapSegment}) = s.E
+quaderror(n::Node) = quaderror(getfield(n, :val))
 
-ruleerror(s::HeapSegment) = s.rE
-quaderror(s::HeapSegment) = s.qE
-sorterror(s::HeapSegment) = s.sE
-
-quaderror(n::HeapNode) = n.w * n.E
-sorterror(n::HeapNode) = sorterror(first(n.h)) # sort by the largest segment error
-
-Base.isless(i::HeapNode, j::HeapNode) = isless(sorterror(i), sorterror(j))
-Base.isless(i::HeapSegment, j::HeapSegment) = isless(sorterror(i), sorterror(j))
+Base.isless(i::Node, j::Node) = isless(getfield(i, :key)*quaderror(i), getfield(j, :key)*quaderror(j))
+Base.isless(i::HeapSegment, j::HeapSegment) = isless(i.E, j.E)
 
 # default to quadgk segments for leaf panels
 evalrule(::Val{1}, f,l,::Val, a,b, x,w,gw, nrm) = evalrule(f, a,b, x,w,gw, nrm)
 
-function evalsegs(::Val{d}, f::F,l::L,::Val{N}, x,w,gw, nrm) where {d,F,L,N}
-    a, b = endpoints(l)
+function evalsegs(::Val{d}, f::F,l::L,::Val{N},a,b, x,w,gw, nrm) where {d,F,L,N}
     s = iterated_segs(f, a, b, Val(N))
     ntuple(i -> evalrule(Val(d), f,l,Val(N),s[i],s[i+1], x,w,gw, nrm), Val(N))
 end
@@ -51,81 +49,87 @@ function evalsegs(f, a, b; kwargs...)
 end
 function evalsegs(f::F, l::L; initdiv=1, order=7, norm=norm) where {F,L}
     x,w,gw = cachedrule(eltype(L),order)
-    evalsegs(Val(ndims(l)), f,l,Val(initdiv), x,w,gw, norm)
+    a,b = endpoints(l)
+    evalsegs(Val(ndims(l)), f,l,Val(initdiv),a,b, x,w,gw, norm)
 end
 
-function evalnode(::Val{d}, f::F,l::L,::Val{N}, xn, wn, gwn, x,w,gw,nrm) where {d,F,L,N}
-    g = iterated_pre_eval(f, xn, Val(d))
-    m = fixandeliminate(l, xn)
-    segs = evalsegs(Val(d-1), g,m,Val(N), x,w,gw, nrm)
-    segheap = BinaryMaxHeap(collect(segs))
-    I = sum(segvalue,  segs)
-    E = sum(quaderror, segs)
-    HeapNode(segheap, I,E, xn,wn,gwn)
+function evalnode(::Val{d}, f::F,l::L,::Val{N}, xn, x,w,gw,nrm) where {d,F,L,N}
+    fn = iterated_pre_eval(f, xn, Val(d))
+    ln = fixandeliminate(l, xn)
+    an, bn = endpoints(ln)
+    evalsegs(Val(d-1), fn,ln,Val(N),an,bn, x,w,gw, nrm)
 end
 
 function evalrule(::Val{d}, f::F,l::L,::Val{N}, a,b, x,w,gw, nrm) where {d,F,L,N}
     p = 2*length(x)-1 # number of points in Kronrod rule
+    c = div(p,2)
 
     s = convert(eltype(x), 0.5) * (b-a)
+
+    # deflated copy of the quadrature rules for convenience
+    xs = Vector{eltype(x)}(undef, p)
+    ws = Vector{eltype(w)}(undef, p)
+    gws = Vector{eltype(gw)}(undef, p)
+
     n1 = 1 - (length(x) & 1) # 0 if even order, 1 if odd order
 
-    f0 = evalnode(Val(d), f,l,Val(N), a + s, w[end] * s, gw[end] * s, x, w, gw, nrm)
-    nodeheap = BinaryMaxHeap{typeof(f0)}()
-    sizehint!(nodeheap, p)
+    xs[c+1] = a + s; ws[c+1] = w[end] * s; gws[c+1] = gw[end] * s
+    f0 = evalnode(Val(d), f,l,Val(N), xs[c+1], x, w, gw, nrm)
+    segheap = BinaryMaxHeap(collect(map(v -> Node(v, ws[c+1], c+1), f0)))
+    sizehint!(segheap, N*p)
+
+    hI = fill(sum(segvalue,  f0), p)
+    hE = fill(sum(quaderror, f0), p)
 
     if n1 == 0 # even: Gauss rule does not include x == 0
-        f0.g = zero(f0.g)
-        push!(nodeheap, f0)
-
-        Ik = f0.I * w[end]
-        Ig = zero(Ik)
-        qE = f0.E * w[end]
-
+        gws[c+1] = zero(eltype(gw))
     else # odd: don't count x==0 twice in Gauss rule
-        fk1 = evalnode(Val(d), f,l,Val(N), a + (1+x[end-1])*s, w[end-1] * s, zero(gw[end]), x, w, gw, nrm)
-        fk2 = evalnode(Val(d), f,l,Val(N), a + (1-x[end-1])*s, w[end-1] * s, zero(gw[end]), x, w, gw, nrm)
-        push!(nodeheap, f0, fk1, fk2)
+        # j = 2i; k = p-j+1
+        xs[c] = a + (1+x[end-1])*s; ws[c] = w[end-1] * s; gws[c] = zero(eltype(gw))
+        f1 = evalnode(Val(d), f,l,Val(N), xs[c], x, w, gw, nrm)
+        foreach(v -> push!(segheap, Node(v, ws[c], c)), f1)
+        hI[c] = sum(segvalue,  f1)
+        hE[c] = sum(quaderror, f1)
 
-        Ig = f0.I * gw[end]
-        Ik = f0.I * w[end] + (fk1.I + fk2.I) * w[end-1]
-        qE = f0.E * w[end] + (fk1.E + fk2.E) * w[end-1]
+        # j = 2i; k = p-j+1
+        xs[c+2] = a + (1-x[end-1])*s; ws[c+2] = ws[c]; gws[c+2] = gws[c]
+        f2 = evalnode(Val(d), f,l,Val(N), xs[c+2], x, w, gw, nrm)
+        foreach(v -> push!(segheap, Node(v, ws[c+2], c+2)), f2)
+        hI[c+2] = sum(segvalue,  f2)
+        hE[c+2] = sum(quaderror, f2)
+    end
+
+    for i = 1:length(gw)-n1
+        jk = (2i, p-2i+1)
+        for (g, (j, k)) in ((gw[i] * s, jk), (zero(eltype(gw)), (jk[1]-1, jk[2]+1)))
+            xs[j] = a + (1+x[j])*s; ws[j] = w[j] * s; gws[j] = g
+            f1 = evalnode(Val(d), f,l,Val(N), xs[j], x, w, gw, nrm)
+            foreach(v -> push!(segheap, Node(v, ws[j], j)), f1)
+            hI[j] = sum(segvalue,  f1)
+            hE[j] = sum(quaderror, f1)
+
+            xs[k] = a + (1-x[j])*s; ws[k] = ws[j]; gws[k] = gws[j]
+            f2 = evalnode(Val(d), f,l,Val(N), xs[k], x, w, gw, nrm)
+            foreach(v -> push!(segheap, Node(v, ws[k], k)), f2)
+            hI[k] = sum(segvalue,  f2)
+            hE[k] = sum(quaderror, f2)
+        end
     end
 
     # Ik and Ig are integrals via Kronrod and Gauss rules, respectively
-    # qE is the quadrature of the error
-    
-    for i = 1:length(gw)-n1
-        fg1 = evalnode(Val(d), f,l,Val(N), a + (1+x[2i])*s, w[2i] * s, gw[i] * s, x, w, gw, nrm)
-        fg2 = evalnode(Val(d), f,l,Val(N), a + (1-x[2i])*s, w[2i] * s, gw[i] * s, x, w, gw, nrm)
-        fk1 = evalnode(Val(d), f,l,Val(N), a + (1+x[2i-1])*s, w[2i-1] * s, zero(gw[i]), x, w, gw, nrm)
-        fk2 = evalnode(Val(d), f,l,Val(N), a + (1-x[2i-1])*s, w[2i-1] * s, zero(gw[i]), x, w, gw, nrm)
-        push!(nodeheap, fg1, fg2, fk1, fk2)
 
-        fg = fg1.I + fg2.I
-        fk = fk1.I + fk2.I
-        Eg = fg1.E + fg2.E
-        Ek = fk1.E + fk2.E
-
-        Ig += fg * gw[i]
-        Ik += fg * w[2i] + fk * w[2i-1]
-        qE += Eg * w[2i] + Ek * w[2i-1]
-    end
-    
-    Ik_s, Ig_s = Ik * s, Ig * s # new variable since this may change the type
-    rE = nrm(Ik_s - Ig_s)
-    if isnan(rE) || isinf(rE)
+    Ik = mapreduce(*, +, ws, hI)
+    Ig = mapreduce(*, +, gws, hI)
+    Eo = norm(Ik - Ig)
+    if isnan(Eo) || isinf(Eo)
         throw(DomainError(a+s, "integrand produced $rE in the interval ($a, $b)"))
     end
-    qE_s = rE + qE * s
-    sE = max(rE, sorterror(first(nodeheap)))
+    Ek = mapreduce(*, +, ws, hE)
+    Eg = mapreduce(*, +, gws, hE)
+    E = Eo + Ek
 
-    return HeapSegment(nodeheap, oftype(s,a),oftype(s,b), Ik_s,Ig_s, rE,qE_s,sE)
+    return HeapSegment(segheap, oftype(s,a),oftype(s,b),Ik,Ig, E,Eo,Ek, xs,ws,gws, hI,hE)
 end
-
-treesum(s::Segment) = (segvalue(s), quaderror(s))
-treesum(n::HeapNode) = n.w .* reduce((a,b) -> a .+ b, treesum.(n.h.valtree))
-treesum(s::HeapSegment) = reduce((a,b) -> a .+ b, treesum.(s.h.valtree))
 
 
 # unlike nested_quadgk, this routine won't support iterated_integrand since that
@@ -145,13 +149,13 @@ iai(f::F, l::L; order=7, atol=nothing, rtol=nothing, norm=norm, maxevals=typemax
     do_iai(f, l, Val(initdiv), order, atol, rtol, maxevals, norm, segbuf)
 
 function do_iai(f::F, l::L, ::Val{N}, n, atol, rtol, maxevals, nrm, buf) where {F,L,N}
-    T = eltype(l); d = ndims(l)
+    T = eltype(l); d = ndims(l); a,b = endpoints(l)
     x,w,gw = cachedrule(T,n)
     p = 2n+1
     
     @assert N ≥ 1
     (numevals = N*p^d) <= maxevals || throw(ArgumentError("maxevals exceeded on initial evaluation"))
-    segs = evalsegs(Val(d), f,l,Val(N), x,w,gw, nrm)
+    segs = evalsegs(Val(d), f,l,Val(N),a,b, x,w,gw, nrm)
     I = sum(s -> segvalue(s), segs)
     E = sum(s -> quaderror(s), segs)
 
@@ -165,15 +169,15 @@ function do_iai(f::F, l::L, ::Val{N}, n, atol, rtol, maxevals, nrm, buf) where {
 
     # optimize common case of no subdivision
     if E ≤ atol_ || E ≤ rtol_ * nrm(I) || numevals ≥ maxevals
-        return (I, E) # fast return when no subdivisions required
+        return (I, E, 0) # fast return when no subdivisions required
     end
 
     segheap = buf===nothing ? BinaryMaxHeap(collect(segs)) : (empty!(buf.valtree); push!(buf, segs...); buf)
-    adapt!(segheap, Val(d), f,l, I, E, numevals, x,w,gw,p, atol_, rtol_, maxevals, nrm)
+    adapt!(segheap, Val(d), f,l,a,b, I,E,numevals, x,w,gw,p, atol_, rtol_, maxevals, nrm)
 end
 
 # internal routine to perform the h-adaptive refinement of the multi-dimensional integration segments
-function adapt!(segheap::BinaryMaxHeap{T}, ::Val{d}, f::F, l::L, I, E, numevals, x,w,gw,p, atol, rtol, maxevals, nrm) where {T,d,F,L}
+function adapt!(segheap::BinaryMaxHeap{T}, ::Val{d}, f::F, l::L,a,b, I,E,numevals, x,w,gw,p, atol, rtol, maxevals, nrm) where {T,d,F,L}
     # Pop the biggest-error segment (in any dimension) and subdivide (h-adaptation)
     # until convergence is achieved or maxevals is exceeded.
     while (tol = max(atol, rtol * nrm(I))) < E
@@ -183,63 +187,74 @@ function adapt!(segheap::BinaryMaxHeap{T}, ::Val{d}, f::F, l::L, I, E, numevals,
         end
 
         s = pop!(segheap)
-        I -= segvalue(s)
-        E -= quaderror(s)
-
-        # find the segment with the largest error by percolating down the tree
-        branch = (); g = f; m = l; depth = d
-        while sorterror(s) > ruleerror(s)
-            n = pop!(s.h) # node in segment with largest error
-            branch = ((n,s), branch...)
-            # remove the contribution of the node to the segment
-            s.qE -= ruleerror(s) + quaderror(n)
-            s.Ik -= n.w * n.I
-            s.Ig -= n.g * n.I
-            s = pop!(n.h) # segment in node with largest error
-            # remove the contribution of the segment to the node
-            n.I -= segvalue(s)
-            n.E -= quaderror(s)
-            # pre-evaluate the integrand/limits of integration
-            g = iterated_pre_eval(g, n.x, Val(depth))
-            m = fixandeliminate(m, n.x)
-            depth -= 1
-        end
-
-        mid = (s.a + s.b) / 2
-        s1 = evalrule(Val(depth), g,m,Val(1), s.a,mid, x,w,gw, nrm)
-        s2 = evalrule(Val(depth), g,m,Val(1), mid,s.b, x,w,gw, nrm)
-        segs = (s1, s2)
-        numevals += 2*p^depth
-
-        # percolate up the tree to update the quadratures and heaps
-        for (n,s) in branch
-            # replace the removed segment(s)
-            push!(n.h, segs...)
-            n.I += sum(segvalue,  segs)
-            n.E += sum(quaderror, segs)
-            # replace the removed node
-            push!(s.h, n)
-            s.Ik += n.w * n.I
-            s.Ig += n.g * n.I
-            s.rE =  nrm(s.Ik - s.Ig)
-            s.qE += ruleerror(s) + quaderror(n)
-            s.sE =  max(ruleerror(s), sorterror(first(s.h)))
-            segs = (s,)
-        end
-
-        push!(segheap, segs...)
-        I += sum(segvalue,  segs)
-        E += sum(quaderror, segs)
+        I, E, numevals = refine!(segheap, s, Val(d), f,l,a,b, I,E,numevals, x,w,gw,p, nrm)
     end
 
-    # re-sum (paranoia about accumulated roundoff)
-    I, E = treesum(segheap.valtree[1])
-    for i in 2:length(segheap)
-        I_, E_ = treesum(segheap.valtree[i])
-        I += I_
-        E += E_
-    end
+    # TODO: re-sum (paranoia about accumulated roundoff)
     return (I, E)
+end
+
+function divide(::Val{d}, s, f,l, x,w,gw, nrm) where d
+    mid = (s.a + s.b) / 2
+    s1 = evalrule(Val(d), f,l,Val(1), s.a,mid, x,w,gw, nrm)
+    s2 = evalrule(Val(d), f,l,Val(1), mid,s.b, x,w,gw, nrm)
+    return (s1, s2)
+end
+function divide(::Val{d}, n::Node, f,l, x,w,gw, nrm) where d
+    val = getfield(n, :val)
+    key = getfield(n, :key)
+    idx = getfield(n, :idx)
+    s1, s2 = divide(Val(d), val, f,l, x,w,gw, nrm)
+    return (Node(s1, key, idx), Node(s2, key, idx))
+end
+
+# internal routine to descend adaptive tree and refine it
+function refine!(segheap, s, ::Val{d}, f,l,a,b, I,E,numevals, x,w,gw,p, nrm) where d
+    I -= segvalue(s)
+    E -= quaderror(s)
+
+    penalty = (b-a) / (s.b-s.a)
+    if d == 1 || s.Eo > s.Ek * penalty
+        # refine outer panel
+        s1, s2 = divide(Val(d), s, f,l, x,w,gw, nrm)
+
+        numevals += 2*p^2
+        I += segvalue(s1) + segvalue(s2)
+        E += quaderror(s1) + quaderror(s2)
+
+        push!(segheap, s1, s2)
+    else
+        # refine inner panel
+
+        n = pop!(s.h)
+        i  = getfield(n, :idx)
+
+        xn = s.x[i]
+        wn = s.w[i]
+        gwn = s.gw[i]
+
+        s.Ik -= wn * s.hI[i]
+        s.Ig -= gwn * s.hI[i]
+        s.Ek -= wn * s.hE[i]
+
+        fn = iterated_pre_eval(f, xn, Val(d))
+        ln = fixandeliminate(l, xn)
+        an, bn = endpoints(ln)
+
+        s.hI[i], s.hE[i], numevals = refine!(s.h, n, Val(d-1), fn,ln,an,bn, s.hI[i],s.hE[i],numevals, x,w,gw,p, nrm)
+
+        s.Ik += wn * s.hI[i]
+        s.Ig += gwn * s.hI[i]
+        s.Ek += wn * s.hE[i]
+
+        s.Eo = nrm(s.Ik - s.Ig)
+        s.E = s.Eo + s.Ek
+        I += segvalue(s)
+        E += quaderror(s)
+
+        push!(segheap, s)
+    end
+    return (I, E, numevals)
 end
 
 """
