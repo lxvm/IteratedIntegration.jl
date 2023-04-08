@@ -18,8 +18,8 @@ julia> @time I1, = nested_quadgk_count(f, (0,0,0), (2pi,2pi,2pi); atol=1e-5)
 (3.0500657555165844e-11 - 221.4503334456331im, 6.513167789370278e-6, 270412665)
 
 julia> @time I2, = iai_count(f, (0,0,0), (2pi,2pi,2pi); atol=1e-5)
- 85.821637 seconds (521.70 M allocations: 13.221 GiB, 2.34% gc time)
-(1.9539925233402755e-14 - 221.45033344593668im, 8.248907526206854e-6, 151635225)
+ 34.775353 seconds (885.34 M allocations: 19.114 GiB, 7.68% gc time)
+(-2.0161650127192843e-13 - 221.4503334459543im, 9.99997776208797e-6, 481793715)
 
 julia> abs(I1-I2) # check how closely solutions agree to within tolerance
 3.050987164194743e-10
