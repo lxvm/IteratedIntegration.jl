@@ -14,6 +14,7 @@ using StaticArrays
 
 using DataStructures: BinaryMaxHeap, extract_all!
 using QuadGK: quadgk, do_quadgk, alloc_segbuf, cachedrule, Segment
+using AuxQuad: do_auxquadgk, Integrands, Errors
 using Polyhedra: Polyhedron, VRepresentation, vrep, points, fulldim, hasallrays, coefficient_type
 
 import Base.Order.Reverse
@@ -33,6 +34,9 @@ include("iterated_integrands.jl")
 
 export nested_quadgk
 include("nested_quadgk.jl")
+
+export nested_auxquadgk, Integrands, Errors
+include("nested_auxquadgk.jl")
 
 export iai, iai_buffer
 include("iai.jl")

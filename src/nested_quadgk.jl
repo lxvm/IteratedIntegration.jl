@@ -53,7 +53,7 @@ function iterated_segs(_, a, b, ::Val{initdivs}) where initdivs
 end
 
 
-struct QuadNest{d,F,L,T,A,R,N,I,S}
+struct QuadNest{d,F,L,T,A,R,N,I,S,U}
     D::Val{d}
     f::F
     l::L
@@ -66,6 +66,7 @@ struct QuadNest{d,F,L,T,A,R,N,I,S}
     norm::N
     initdivs::I
     segbufs::S
+    routine::U
 end
 
 function do_nested_quadgk(q::QuadNest{1})
@@ -78,8 +79,8 @@ function (q::QuadNest{d})(x) where d
     g = iterated_pre_eval(q.f, x, q.D)
     m = fixandeliminate(q.l, x)
     a, b = endpoints(m)
-    p = QuadNest(Val(d-1), g, m,a,b, q.order, atol, q.rtol, q.maxevals, q.norm, q.initdivs[1:d-1], q.segbufs[1:d-1])
-    I, = do_nested_quadgk(p)
+    p = QuadNest(Val(d-1), g, m,a,b, q.order, atol, q.rtol, q.maxevals, q.norm, q.initdivs[1:d-1], q.segbufs[1:d-1], q.routine)
+    I, = q.routine(p)
     iterated_integrand(q.f, I, q.D)
 end
 
@@ -134,7 +135,7 @@ function nested_quadgk(f::F, l::L; order=7, atol=nothing, rtol=nothing, norm=nor
     atol_ = something(atol, zero(eltype(l)))
     rtol_ = something(rtol, iszero(atol_) ? sqrt(eps(one(eltype(l)))) : zero(eltype(l)))
     a, b = endpoints(l)
-    q = QuadNest(Val(ndims(l)), f, l,a,b, order, atol_, rtol_, maxevals, norm, initdivs_, segbufs_)
+    q = QuadNest(Val(ndims(l)), f, l,a,b, order, atol_, rtol_, maxevals, norm, initdivs_, segbufs_, do_nested_quadgk)
     do_nested_quadgk(q)
 end
 
