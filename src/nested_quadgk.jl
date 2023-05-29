@@ -40,14 +40,14 @@ function iterated_integral_type(f, l)
 end
 
 """
-    iterated_segs(f, a, b, ::Val{initdivs}) where initdivs
+    iterated_segs(f, l, a, b, ::Val{initdivs}) where initdivs
 
 Returns a `Tuple` of integration nodes that are passed to `QuadGK` to initialize
 the segments for adaptive integration. By default, returns `initdivs` equally
 spaced panels on interval `(a, b)`. If `f` is localized, specializing this
 function can also help avoid errors when `QuadGK` fails to adapt.
 """
-function iterated_segs(_, a, b, ::Val{initdivs}) where initdivs
+function iterated_segs(_, _, a, b, ::Val{initdivs}) where initdivs
     r = range(a, b, length=initdivs+1)
     ntuple(i -> r[i], Val(initdivs+1))
 end
@@ -70,7 +70,7 @@ struct QuadNest{d,F,L,T,A,R,N,I,S,U}
 end
 
 function do_nested_quadgk(q::QuadNest{1})
-    segs = iterated_segs(q.f, q.a, q.b, q.initdivs[1])
+    segs = iterated_segs(q.f, q.l, q.a, q.b, q.initdivs[1])
     do_quadgk(q.f, segs, q.order, q.atol, q.rtol, q.maxevals, q.norm, q.segbufs[1])
 end
 
@@ -85,7 +85,7 @@ function (q::QuadNest{d})(x) where d
 end
 
 function do_nested_quadgk(q::QuadNest{d}) where d
-    segs = iterated_segs(q.f, q.a, q.b, q.initdivs[d])
+    segs = iterated_segs(q.f, q.l, q.a, q.b, q.initdivs[d])
     atol = iterated_outer_tol(q.atol, q.a, q.b)
     do_quadgk(q, segs, q.order, atol, q.rtol, q.maxevals, q.norm, q.segbufs[d])
 end
