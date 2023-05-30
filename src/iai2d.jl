@@ -203,7 +203,8 @@ function adapt2d!(segheap::BinaryMaxHeap{Segment2d{TX,TI,TE}}, f::F, l::L, I, E,
 
         s = pop!(segheap)
 
-        if s.Eo > s.Ek * (b_out - a_out) / (s.b - s.a)
+        # if s.Eo > s.Ek * min((b_out - a_out) / (s.b - s.a), 16)
+        if s.Eo > s.Ek * min(log2((b_out - a_out) / (s.b - s.a))^2, Inf)
             # refine outer panel
             I -= segvalue(s)
             E -= quaderror(s)

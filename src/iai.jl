@@ -137,7 +137,7 @@ end
 """
     iai(f, a, b; kwargs...)
     iai(f::AbstractIteratedIntegrand{d}, l::AbstractLimits{d}; order=7, atol=0, rtol=sqrt(eps()), norm=norm, maxevals=typemax(Int), segbuf=nothing) where d
-    
+
 Multi-dimensional globally-adaptive quadrature via iterated integration using
 Gauss-Kronrod rules. Interface is similar to [`nested_quadgk`](@ref).
 """
@@ -146,15 +146,15 @@ function iai(f, a, b; kwargs...)
     iai(ThunkIntegrand{ndims(l)}(f), l; kwargs...)
 end
 iai(f::F, l::L; order=7, atol=nothing, rtol=nothing, norm=norm, maxevals=typemax(Int), initdiv=1, segbuf=nothing) where {F,L} =
-    do_iai(f, l, Val(initdiv), order, atol, rtol, maxevals, norm, segbuf)
+    do_iai(f, l, Val(something(initdiv, 1)), order, atol, rtol, maxevals, norm, segbuf)
 
 function do_iai(f::F, l::L, ::Val{N}, n, atol, rtol, maxevals, nrm, buf) where {F,L,N}
     T = eltype(l); d = ndims(l); a,b = endpoints(l)
     x,w,gw = cachedrule(T,n)
     p = 2n+1
-    
+
     @assert N ≥ 1
-    (numevals = N*p^d) <= maxevals || throw(ArgumentError("maxevals exceeded on initial evaluation"))
+    (numevals = (N*p)^d) <= maxevals || throw(ArgumentError("maxevals exceeded on initial evaluation"))
     segs = evalsegs(Val(d), f,l,Val(N),a,b, x,w,gw, nrm)
     I = sum(s -> segvalue(s), segs)
     E = sum(s -> quaderror(s), segs)
@@ -187,7 +187,7 @@ function adapt!(segheap::BinaryMaxHeap{T}, ::Val{d}, f::F, l::L,a,b, I,E,numeval
         end
 
         s = pop!(segheap)
-        I, E, numevals = refine!(segheap, s, Val(d), f,l,a,b, I,E,numevals, x,w,gw,p, nrm)
+        I, E, numevals = refine!(segheap, s, Val(d), f,l,a,b, I,E,numevals, x,w,gw,p, nrm,atol,rtol)
     end
 
     # TODO: re-sum (paranoia about accumulated roundoff)
@@ -209,16 +209,26 @@ function divide(::Val{d}, n::Node, f,l, x,w,gw, nrm) where d
 end
 
 # internal routine to descend adaptive tree and refine it
-function refine!(segheap, s, ::Val{d}, f,l,a,b, I,E,numevals, x,w,gw,p, nrm) where d
+function refine!(segheap, s, ::Val{d}, f,l,a,b, I,E,numevals, x,w,gw,p, nrm,atol,rtol) where d
+
+#=
+    Takeaways
+    - multiple integration smooths out functions - penalty dimension dependence?
+    - when requesting fewer digits, make the thrashing penalty higher
+    - penalty needs to be at least linear and depth^(2 to 3) seems to work well
+    - penalty maxima could be dangerous and need to be carefully thought out
+=#
+    penalty = 1 # thrashing
+    # penalty = (b-a) / (s.b-s.a)
+    # penalty = log2((b-a) / (s.b-s.a))#^d#^(2-1/log10(max(atol/nrm(I), rtol)))
+    # penalty = min((b-a) / (s.b-s.a), 16)
     I -= segvalue(s)
     E -= quaderror(s)
-
-    penalty = (b-a) / (s.b-s.a)
     if d == 1 || s.Eo > s.Ek * penalty
         # refine outer panel
         s1, s2 = divide(Val(d), s, f,l, x,w,gw, nrm)
 
-        numevals += 2*p^2
+        numevals += 2*p^d
         I += segvalue(s1) + segvalue(s2)
         E += quaderror(s1) + quaderror(s2)
 
@@ -241,7 +251,7 @@ function refine!(segheap, s, ::Val{d}, f,l,a,b, I,E,numevals, x,w,gw,p, nrm) whe
         ln = fixandeliminate(l, xn)
         an, bn = endpoints(ln)
 
-        s.hI[i], s.hE[i], numevals = refine!(s.h, n, Val(d-1), fn,ln,an,bn, s.hI[i],s.hE[i],numevals, x,w,gw,p, nrm)
+        s.hI[i], s.hE[i], numevals = refine!(s.h, n, Val(d-1), fn,ln,an,bn, s.hI[i],s.hE[i],numevals, x,w,gw,p, nrm,atol,rtol)
 
         s.Ik += wn * s.hI[i]
         s.Ig += gwn * s.hI[i]
