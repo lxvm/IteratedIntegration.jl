@@ -1,6 +1,7 @@
 module AuxQuadExt
 
-using IteratedIntegration: iterated_segs, QuadNest, iterated_outer_tol, CubicLimits, ThunkIntegrand, alloc_segbufs
+using LinearAlgebra: norm
+using IteratedIntegration: iterated_segs, endpoints, QuadNest, iterated_outer_tol, CubicLimits, ThunkIntegrand, alloc_segbufs
 import IteratedIntegration: nested_auxquadgk
 using AuxQuad: do_auxquadgk, Sequential
 import AuxQuad: Parallel
