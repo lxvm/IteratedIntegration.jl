@@ -14,7 +14,6 @@ using StaticArrays
 
 using DataStructures: BinaryMaxHeap, extract_all!
 using QuadGK: quadgk, do_quadgk, alloc_segbuf, cachedrule, Segment
-using AuxQuad: do_auxquadgk, Integrands, Errors
 
 import Base.Order.Reverse
 import QuadGK: evalrule
