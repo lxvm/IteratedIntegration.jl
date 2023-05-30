@@ -13,8 +13,7 @@ StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
 [compat]
 DataStructures = "0.18"
 IntervalSets = "0.7"
-Polyhedra = "0.6,0.7"
-QuadGK = "2"
+QuadGK = "2.6"
 StaticArrays = "1"
 julia = "1.6"
 
