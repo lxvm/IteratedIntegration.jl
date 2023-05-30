@@ -35,7 +35,7 @@ include("iterated_integrands.jl")
 export nested_quadgk
 include("nested_quadgk.jl")
 
-export nested_auxquadgk, Integrands, Errors
+export nested_auxquadgk
 include("nested_auxquadgk.jl")
 
 export iai, iai_buffer
