@@ -14,18 +14,15 @@ using StaticArrays
 
 using DataStructures: BinaryMaxHeap, extract_all!
 using QuadGK: quadgk, do_quadgk, alloc_segbuf, cachedrule, Segment
-using Polyhedra: Polyhedron, VRepresentation, vrep, points, fulldim, hasallrays, coefficient_type
 
 import Base.Order.Reverse
 import QuadGK: evalrule
-import IntervalSets: endpoints
-import Polyhedra: fixandeliminate
 
 export AbstractIteratedLimits, AbstractIteratedIntegrand
 export iterated_pre_eval, iterated_integrand
 include("definitions.jl")
 
-export CubicLimits, TetrahedralLimits, PolyhedralLimits, ProductLimits, TranslatedLimits
+export CubicLimits, TetrahedralLimits, ProductLimits, TranslatedLimits, load_limits
 include("iterated_limits.jl")
 
 export ThunkIntegrand, IteratedIntegrand, ProductIteratedIntegrand
@@ -34,10 +31,13 @@ include("iterated_integrands.jl")
 export nested_quadgk
 include("nested_quadgk.jl")
 
+export nested_auxquadgk
+include("nested_auxquadgk.jl")
+
 export iai, iai_buffer
 include("iai.jl")
 
-for routine in (:nested_quadgk, :iai)
+for routine in (:nested_quadgk, :nested_auxquadgk, :iai)
     routine_count = Symbol(routine, :_count)
     routine_print = Symbol(routine, :_print)
 
