@@ -117,6 +117,19 @@ using HCubature
         relI, = auxquadgk(integrand, 0, 2pi, rtol=1e-6, parallel=Parallel(Float64,AuxValue{Float64},AuxValue{Float64})) # 628318.5306867635
         @test absI.val ≈ relI.val rtol=1e-6
     end
+
+    @testset "inference" begin
+        for n in 1:4, routine in (nested_quadgk, nested_auxquadgk) # iai
+            a = zeros(n)
+            b = rand(n)
+            for (integrand,type) in (
+                (x -> sin(sum(x)), Tuple{Float64, Float64}),
+                (x -> inv(complex(sin(sum(x)), 0.01)), Tuple{ComplexF64,Float64}),
+                )
+                @inferred type routine(integrand, a, b)
+            end
+        end
+    end
 end
 
 @testset "PolyhedraExt" begin
