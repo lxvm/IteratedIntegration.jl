@@ -1,5 +1,6 @@
 using Test
 
+using Polyhedra
 using IteratedIntegration
 using QuadGK
 using HCubature
@@ -13,10 +14,6 @@ using HCubature
         end
 
         @testset "TetrahedralLimits" begin
-
-        end
-
-        @testset "PolyhedralLimits" begin
 
         end
 
@@ -120,4 +117,20 @@ using HCubature
         relI, = auxquadgk(integrand, 0, 2pi, rtol=1e-6, parallel=Parallel(Float64,AuxValue{Float64},AuxValue{Float64})) # 628318.5306867635
         @test absI.val ≈ relI.val rtol=1e-6
     end
+end
+
+@testset "PolyhedraExt" begin
+
+    p = polyhedron(vrep([
+    -1.9 -1.7
+    -1.8  0.5
+     1.7  0.7
+     1.9 -0.3
+     0.9 -1.1
+    ]))
+    pvol = volume(p)
+
+    l = load_limits(p)
+    ivol, = nested_quadgk(ThunkIntegrand{2}(x -> 1.0), l)
+    @test pvol ≈ ivol
 end
