@@ -53,7 +53,7 @@ function iterated_segs(_, _, a, b, ::Val{initdivs}) where initdivs
 end
 
 
-struct QuadNest{d,F,L,T,A,R,N,I,S,U}
+struct QuadNest{d,F,L,T,A,R,N,I,S,U,Y}
     D::Val{d}
     f::F
     l::L
@@ -67,6 +67,7 @@ struct QuadNest{d,F,L,T,A,R,N,I,S,U}
     initdivs::I
     segbufs::S
     routine::U
+    types::Y
 end
 
 function do_nested_quadgk(q::QuadNest{1})
@@ -79,15 +80,16 @@ function (q::QuadNest{d})(x) where d
     g = iterated_pre_eval(q.f, x, q.D)
     m = fixandeliminate(q.l, x)
     a, b = endpoints(m)
-    p = QuadNest(Val(d-1), g, m,a,b, q.order, atol, q.rtol, q.maxevals, q.norm, q.initdivs[1:d-1], q.segbufs[1:d-1], q.routine)
+    p = QuadNest(Val(d-1), g, m,a,b, q.order, atol, q.rtol, q.maxevals, q.norm, q.initdivs[1:d-1], q.segbufs[1:d-1], q.routine, q.types)
     I, = q.routine(p)
     iterated_integrand(q.f, I, q.D)
 end
 
-function do_nested_quadgk(q::QuadNest{d}) where d
+function do_nested_quadgk(q::QuadNest{d,F,L,T}) where {d,F,L,T}
     segs = iterated_segs(q.f, q.l, q.a, q.b, q.initdivs[d])
     atol = iterated_outer_tol(q.atol, q.a, q.b)
-    do_quadgk(q, segs, q.order, atol, q.rtol, q.maxevals, q.norm, q.segbufs[d])
+    func = FunctionWrapper{q.types[d],Tuple{T}}(q)
+    do_quadgk(func, segs, q.order, atol, q.rtol, q.maxevals, q.norm, q.segbufs[d])
 end
 
 """
@@ -135,7 +137,8 @@ function nested_quadgk(f::F, l::L; order=7, atol=nothing, rtol=nothing, norm=nor
     atol_ = something(atol, zero(eltype(l)))
     rtol_ = something(rtol, iszero(atol_) ? sqrt(eps(one(eltype(l)))) : zero(eltype(l)))
     a, b = endpoints(l)
-    q = QuadNest(Val(ndims(l)), f, l,a,b, order, atol_, rtol_, maxevals, norm, initdivs_, segbufs_, do_nested_quadgk)
+    types = types_of_segbufs(segbufs_, Val(ndims(l)))
+    q = QuadNest(Val(ndims(l)), f, l,a,b, order, atol_, rtol_, maxevals, norm, initdivs_, segbufs_, do_nested_quadgk, types)
     do_nested_quadgk(q)
 end
 
@@ -159,4 +162,9 @@ function alloc_segbufs(f, l)
     typesof_fx = iterated_inference(f, l)
     typesof_nfx = ntuple(n -> Base.promote_op(norm, typesof_fx[n]), Val{ndims(l)}())
     alloc_segbufs(eltype(l), typesof_fx, typesof_nfx, ndims(l))
+end
+
+type_of_segbuf(::Vector{Segment{TX,TI,TE}}) where {TX,TI,TE} = TI
+function types_of_segbufs(segbufs, ::Val{N}) where N
+    ntuple(i -> type_of_segbuf(segbufs[i]), Val{N}())
 end

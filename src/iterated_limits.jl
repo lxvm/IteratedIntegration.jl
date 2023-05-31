@@ -56,15 +56,6 @@ fixandeliminate(t::TetrahedralLimits{d,T}, x) where {d,T} =
     TetrahedralLimits{d-1,T}(Base.front(t.a), convert(T, x)/t.a[d])
 
 
-function corners(t::AbstractIteratedLimits)
-    a, b = endpoints(t)
-    ndims(t) == 1 && return [(a,), (b,)]
-    ta = corners(fixandeliminate(t, a))
-    tb = corners(fixandeliminate(t, b))
-    unique((map(x -> (x..., a), ta)..., map(x -> (x..., b), tb)...))
-end
-
-
 """
     ProductLimits(lims::AbstractIteratedLimits...)
 

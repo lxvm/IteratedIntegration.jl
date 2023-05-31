@@ -13,6 +13,7 @@ using LinearAlgebra
 using StaticArrays
 
 using DataStructures: BinaryMaxHeap, extract_all!
+using FunctionWrappers: FunctionWrapper
 using QuadGK: quadgk, do_quadgk, alloc_segbuf, cachedrule, Segment
 
 import Base.Order.Reverse
@@ -31,8 +32,9 @@ include("iterated_integrands.jl")
 export nested_quadgk
 include("nested_quadgk.jl")
 
-export nested_auxquadgk
-include("nested_auxquadgk.jl")
+export auxquadgk, nested_auxquadgk, AuxValue, Sequential, Parallel
+include("AuxQuad.jl")
+using .AuxQuad
 
 export iai, iai_buffer
 include("iai.jl")
@@ -46,7 +48,7 @@ for routine in (:nested_quadgk, :nested_auxquadgk, :iai)
     @eval $routine_count(f, a, b; kwargs...) =
         $routine_count(f, CubicLimits(a, b); kwargs...)
     @eval function $routine_count(f, l; kwargs...)
-        numevals = 0
+        numevals::Int = 0
         g = ThunkIntegrand{ndims(l)}(x -> (numevals += 1; f(x)))
         I, E = $routine(g, l; kwargs...)
         return (I, E, numevals)
