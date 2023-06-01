@@ -379,10 +379,8 @@ function do_nested_auxquadgk(q::QuadNest{d,F,L,T}) where {d,F,L,T}
     do_auxquadgk(func, segs, q.order, atol, q.rtol, q.maxevals, q.norm, q.segbufs[d][1], q.segbufs[d][2])
 end
 
-function nested_auxquadgk(f, a, b; kwargs...)
-    l = CubicLimits(a, b)
-    nested_auxquadgk(ThunkIntegrand{ndims(l)}(f), l; kwargs...)
-end
+nested_auxquadgk(f, a, b; kwargs...) = nested_auxquadgk(f, CubicLimits(a, b); kwargs...)
+nested_auxquadgk(f::Function, l; kwargs...) = nested_auxquadgk(ThunkIntegrand{ndims(l)}(f), l; kwargs...)
 function nested_auxquadgk(f::F, l::L; order=7, atol=nothing, rtol=nothing, norm=norm, maxevals=10^7, initdivs=nothing, segbufs=nothing, parallels=nothing) where {F,L}
     initdivs_ = initdivs === nothing ? ntuple(i -> Val(1), Val(ndims(l))) : initdivs
     segbufs_ = segbufs === nothing ? alloc_segbufs(f, l) : segbufs
@@ -407,12 +405,17 @@ end
 
 """
     nested_auxquadgk(f, a, b; kwargs...)
-    nested_auxquadgk(f::AbstractIteratedIntegrand{d}, ::AbstractIteratedLimits{d}; order=7, atol=nothing, rtol=nothing, norm=norm, maxevals=typemax(Int), initdivs=ntuple(i -> Val(1), Val{d}()), segbufs=nothing, parallels=nothing) where d
+    nested_auxquadgk(f::Function, l; kwargs...)
+    nested_auxquadgk(f::AbstractIteratedIntegrand{d}, ::AbstractIteratedLimits{d}; order=7, atol=nothing, rtol=nothing, norm=norm, maxevals=typemax(Int), initdivs=ntuple(i -> Val(1), Val{d}()), segbufs=nothing) where d
 
-Calls `QuadGK` to perform iterated 1D integration of `f` over a compact domain
-parametrized by `AbstractIteratedLimits`. In the case two points `a` and `b` are
-passed, the integration region becomes the hypercube with those extremal
-vertices (which mimics `hcubature`). `f` is assumed to be type-stable.
+Calls `auxquadgk` to perform iterated 1D integration of `f` over a compact domain parametrized
+by `AbstractIteratedLimits` `l`. In the case two points `a` and `b` are passed, the
+integration region becomes the hypercube with those extremal vertices (which mimics
+`hcubature`). `f` must implement the [`AbstractIteratedIntegrand`](@ref) interface, or if it
+is a `Function` it will be wrapped in a [`ThunkIntegrand`](@ref) so that it is treated like
+one. `f` is assumed to be type-stable and its return type is inferred and enforced. Errors
+from `iterated_inference` are an indication that inference failed and there could be an
+instability or bug with the integrand.
 
 Returns a tuple `(I, E)` of the estimated integral and estimated error.
 
