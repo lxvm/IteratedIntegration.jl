@@ -40,7 +40,7 @@ evalrule(::Val{1}, f,l,::Val, a,b, x,w,gw, nrm) = evalrule(f, a,b, x,w,gw, nrm)
 
 function evalsegs(::Val{d}, f::F,l::L,::Val{N}, x,w,gw, nrm) where {d,F,L,N}
     a, b = endpoints(l)
-    s = iterated_segs(f, a, b, Val(N))
+    s = iterated_segs(f, l, a, b, Val(N))
     ntuple(i -> evalrule(Val(d), f,l,Val(N),s[i],s[i+1], x,w,gw, nrm), Val(N))
 end
 
@@ -94,7 +94,7 @@ function evalrule(::Val{d}, f::F,l::L,::Val{N}, a,b, x,w,gw, nrm) where {d,F,L,N
 
     # Ik and Ig are integrals via Kronrod and Gauss rules, respectively
     # qE is the quadrature of the error
-    
+
     for i = 1:length(gw)-n1
         fg1 = evalnode(Val(d), f,l,Val(N), a + (1+x[2i])*s, w[2i] * s, gw[i] * s, x, w, gw, nrm)
         fg2 = evalnode(Val(d), f,l,Val(N), a + (1-x[2i])*s, w[2i] * s, gw[i] * s, x, w, gw, nrm)
@@ -111,7 +111,7 @@ function evalrule(::Val{d}, f::F,l::L,::Val{N}, a,b, x,w,gw, nrm) where {d,F,L,N
         Ik += fg * w[2i] + fk * w[2i-1]
         qE += Eg * w[2i] + Ek * w[2i-1]
     end
-    
+
     Ik_s, Ig_s = Ik * s, Ig * s # new variable since this may change the type
     rE = nrm(Ik_s - Ig_s)
     if isnan(rE) || isinf(rE)
@@ -133,7 +133,7 @@ treesum(s::HeapSegment) = reduce((a,b) -> a .+ b, treesum.(s.h.valtree))
 """
     iai(f, a, b; kwargs...)
     iai(f::AbstractIteratedIntegrand{d}, l::AbstractLimits{d}; order=7, atol=0, rtol=sqrt(eps()), norm=norm, maxevals=typemax(Int), segbuf=nothing) where d
-    
+
 Multi-dimensional globally-adaptive quadrature via iterated integration using
 Gauss-Kronrod rules. Interface is similar to [`nested_quadgk`](@ref).
 """
@@ -148,7 +148,7 @@ function do_iai(f::F, l::L, ::Val{N}, n, atol, rtol, maxevals, nrm, buf) where {
     T = eltype(l); d = ndims(l)
     x,w,gw = cachedrule(T,n)
     p = 2n+1
-    
+
     @assert N ≥ 1
     (numevals = N*p^d) <= maxevals || throw(ArgumentError("maxevals exceeded on initial evaluation"))
     segs = evalsegs(Val(d), f,l,Val(N), x,w,gw, nrm)

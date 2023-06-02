@@ -1,5 +1,6 @@
 using Test
 
+using Polyhedra
 using IteratedIntegration
 using QuadGK
 using HCubature
@@ -13,10 +14,6 @@ using HCubature
         end
 
         @testset "TetrahedralLimits" begin
-
-        end
-
-        @testset "PolyhedralLimits" begin
 
         end
 
@@ -90,7 +87,7 @@ using HCubature
 
     @testset "hcubature validation" begin
         atol = 1e-8
-        for n in 1:3, routine in (nested_quadgk, iai)
+        for n in 1:3, routine in (nested_quadgk, nested_auxquadgk, iai)
             a = zeros(n)
             b = rand(n)
             for integrand in (x -> sin(sum(x)), x -> inv(0.01im+sin(sum(x))))
@@ -102,4 +99,51 @@ using HCubature
             @test hcubature(integrand, a, b; atol=atol)[1] ≈ routine(integrand, a, b; atol=atol)[1] atol=atol
         end
     end
+
+    @testset "auxquad" begin
+        f(x)    = sin(x)/(cos(x)+im*1e-5)   # peaked "nice" integrand
+        imf(x)  = imag(f(x))                # peaked difficult integrand
+        f2(x)   = f(x)^2                    # even more peaked
+        imf2(x) = imf(x)^2                  # even more peaked!
+
+        x0 = 0.1    # arbitrary offset of between peak
+
+        function integrand(x)
+            re, im = reim(f2(x) + f2(x-x0))
+            AuxValue(imf2(x) + imf2(x-x0), re)
+        end
+
+        absI, = auxquadgk(integrand, 0, 2pi, atol=1e-4, parallel=Sequential()) # 628318.5306881254
+        relI, = auxquadgk(integrand, 0, 2pi, rtol=1e-6, parallel=Parallel(Float64,AuxValue{Float64},AuxValue{Float64})) # 628318.5306867635
+        @test absI.val ≈ relI.val rtol=1e-6
+    end
+
+    @testset "inference" begin
+        for n in 1:4, routine in (nested_quadgk, nested_auxquadgk) # iai
+            a = zeros(n)
+            b = rand(n)
+            for (integrand,type) in (
+                (x -> sin(sum(x)), Tuple{Float64, Float64}),
+                (x -> inv(complex(sin(sum(x)), 0.01)), Tuple{ComplexF64,Float64}),
+                )
+                @inferred type routine(integrand, a, b)
+            end
+        end
+    end
+end
+
+@testset "PolyhedraExt" begin
+
+    p = polyhedron(vrep([
+    -1.9 -1.7
+    -1.8  0.5
+     1.7  0.7
+     1.9 -0.3
+     0.9 -1.1
+    ]))
+    pvol = volume(p)
+
+    l = load_limits(p)
+    ivol, = nested_quadgk(ThunkIntegrand{2}(x -> 1.0), l)
+    @test pvol ≈ ivol
 end
