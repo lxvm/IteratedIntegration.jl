@@ -5,28 +5,25 @@ Store integration limit information for a hypercube with vertices `a` and `b`.
 which can be can be real numbers, tuples, or `AbstractVector`s.
 The outermost variable of integration corresponds to the last entry.
 """
-struct CubicLimits{d,T,L} <: AbstractIteratedLimits{d,T}
-    a::L
-    b::L
-    CubicLimits{d,T}(a::L, b::L) where {d,T,L<:NTuple{d,T}} = new{d,T,L}(a, b)
+struct CubicLimits{d,T} <: AbstractIteratedLimits{d,T}
+    a::SVector{d,T}
+    b::SVector{d,T}
 end
-function CubicLimits(a::NTuple{d,A}, b::NTuple{d,B}) where {d,A<:Real,B<:Real}
-    T = float(promote_type(A, B))
-    CubicLimits{d,T}(
-        ntuple(n -> T(a[n]), Val{d}()),
-        ntuple(n -> T(b[n]), Val{d}()),
-    )
+function CubicLimits(a::SVector{d,A}, b::SVector{d,B}) where {d,A<:Number,B<:Number}
+    T = promote_type(A, B)
+    return CubicLimits{d,T}(convert(SVector{d,T}, a), convert(SVector{d,T},b))
 end
-CubicLimits(a::Real, b::Real) = CubicLimits((a,), (b,))
-CubicLimits(a::AbstractVector, b::AbstractVector) = CubicLimits(Tuple(a), Tuple(b))
+function CubicLimits(a::NTuple{d,A}, b::NTuple{d,B}) where {d,A,B}
+    return CubicLimits(SVector{d,A}(a), SVector{d,B}(b))
+end
+CubicLimits(a, b) = CubicLimits(promote(a...), promote(b...))
 
-function endpoints(c::CubicLimits{d}, dim=d) where d
-    1 <= dim <= d || throw(ArgumentError("pick dim=$(dim) in 1:$d"))
-    return (c.a[dim], c.b[dim])
+function fixandeliminate(c::CubicLimits{d,T}, _, ::Val{dim}) where {d,T,dim}
+    return CubicLimits{d-1,T}(deleteat(c.a, dim), deleteat(c.b, dim))
 end
-
-fixandeliminate(c::CubicLimits{d,T}, _) where {d,T} =
-    CubicLimits{d-1,T}(Base.front(c.a), Base.front(c.b))
+function segments(c::CubicLimits, dim)
+    return ((c.a[dim], c.b[dim]),)
+end
 
 """
     TetrahedralLimits(a::NTuple{d}) where d
@@ -45,15 +42,19 @@ struct TetrahedralLimits{d,T,A} <: AbstractIteratedLimits{d,T}
     s::T
     TetrahedralLimits{d,T}(a::A, s::T) where {d,T,A<:NTuple{d,T}} = new{d,T,A}(a, s)
 end
-TetrahedralLimits(a::NTuple{d,T}) where {d,T} =
-    TetrahedralLimits{d,float(T)}(ntuple(n -> float(a[n]), Val{d}()), one(T))
+function TetrahedralLimits(a::NTuple{d,T}) where {d,T}
+    return TetrahedralLimits{d,float(T)}(ntuple(n -> float(a[n]), Val{d}()), one(float(T)))
+end
 TetrahedralLimits(a::Tuple) = TetrahedralLimits(promote(a...))
 TetrahedralLimits(a::AbstractVector) = TetrahedralLimits(Tuple(a))
 
-endpoints(t::TetrahedralLimits{d,T}) where {d,T} = (zero(T), t.a[d]*t.s)
-
-fixandeliminate(t::TetrahedralLimits{d,T}, x) where {d,T} =
-    TetrahedralLimits{d-1,T}(Base.front(t.a), convert(T, x)/t.a[d])
+function fixandeliminate(t::TetrahedralLimits{d,T}, x, ::Val{d}) where {d,T}
+    return TetrahedralLimits{d-1,T}(Base.front(t.a), convert(T, x)/t.a[d])
+end
+function segments(t::TetrahedralLimits{d,T}, dim) where {d,T}
+    @assert d == dim
+    return ((zero(T), t.a[d]*t.s),)
+end
 
 
 """
@@ -78,12 +79,19 @@ function ProductLimits(lims::L) where {L<:Tuple{Vararg{AbstractIteratedLimits}}}
     ProductLimits{d,T}(lims)
 end
 
-endpoints(l::ProductLimits) = endpoints(l.lims[1])
+nextprodlim(x, lim, lims...) = (fixandeliminate(lim, x, Val(ndims(lim))), lims...)
+# after exhausting the active limits, move onto the rest
+nextprodlim(_, ::AbstractIteratedLimits{1}, lims...) = lims
+function fixandeliminate(l::ProductLimits{d,T}, x, ::Val{d}) where {d,T}
+    return ProductLimits{d-1,T}(nextprodlim(x, l.lims...))
+end
 
-fixandeliminate(l::ProductLimits{d,T}, x) where {d,T} =
-    ProductLimits{d-1,T}(Base.setindex(l.lims, fixandeliminate(l.lims[1], x), 1))
-fixandeliminate(l::ProductLimits{d,T,<:Tuple{<:AbstractIteratedLimits{1},Vararg{AbstractIteratedLimits}}}, x) where {d,T} =
-    ProductLimits{d-1,T}(Base.tail(l.lims))
+function segments(l::ProductLimits{d}, dim) where {d}
+    @assert d==dim
+    lim = l.lims[1]
+    return segments(lim, ndims(lim))
+end
+
 
 
 """
@@ -97,13 +105,15 @@ struct TranslatedLimits{d,C,L,T} <: AbstractIteratedLimits{d,C}
     TranslatedLimits{d,C}(l::L, t::T) where {d,C,L<:AbstractIteratedLimits{d,C},T<:NTuple{d,C}} =
         new{d,C,L,T}(l, t)
 end
-TranslatedLimits(l::AbstractIteratedLimits{d,C}, t::NTuple{d}) where {d,C} =
-    TranslatedLimits{d,C}(l, map(x -> convert(C, x), t))
+function TranslatedLimits(l::AbstractIteratedLimits{d,C}, t::NTuple{d}) where {d,C}
+    return TranslatedLimits{d,C}(l, map(x -> convert(C, x), t))
+end
 
-endpoints(t::TranslatedLimits) =
-    map(x -> x + t.t[ndims(t)], endpoints(t.l))
-fixandeliminate(t::TranslatedLimits{d,C}, x) where {d,C} =
-    TranslatedLimits{d-1,C}(fixandeliminate(t.l, convert(C, x) - t.t[ndims(t)]), Base.front(t.t))
+endpoints(t::TranslatedLimits) = map(x -> x + t.t[ndims(t)], endpoints(t.l))
+function fixandeliminate(t::TranslatedLimits{d,C}, x) where {d,C}
+    l = fixandeliminate(t.l, convert(C, x) - t.t[ndims(t)])
+    return TranslatedLimits{d-1,C}(l, Base.front(t.t))
+end
 
 # More ideas for limits
 # ParametrizedLimits

@@ -64,16 +64,14 @@ arising naturally from the structure of the integrand, the integration is much m
 to error because it can resolve the regions of interest with the more-easily adaptively
 integrable problem.
 """
-module AuxQuad
+module RuleQuad
 
 using QuadGK: handle_infinities, Segment, cachedrule, InplaceIntegrand, alloc_segbuf
 using DataStructures, LinearAlgebra
-using FunctionWrappers: FunctionWrapper
 import Base.Order.Reverse
 import QuadGK: evalrule
-using ..IteratedIntegration: iterated_segs, endpoints, QuadNest, iterated_outer_tol, CubicLimits, ThunkIntegrand, alloc_segbufs, types_of_segbufs
 
-export auxquadgk, nested_auxquadgk, AuxValue, Sequential, Parallel
+export auxquadgk, AuxValue, Sequential, Parallel
 
 
 struct AuxValue{T}
@@ -142,6 +140,9 @@ Base.isequal(a, b::AuxValue) = isequal(a, b.val) && isequal(a, b.aux)
 
 
 struct Sequential end
+
+@inline evalrule(::Nothing, f::F, a,b, x,w,gw, nrm) where F = evalrule(f, a,b, x,w,gw, nrm)
+
 struct Parallel{T,S}
     f::Vector{T} # array to store function evaluations
     old_segs::Vector{S} # array to store segments popped off of heap
@@ -161,31 +162,30 @@ to multiple compatible `quadgk` calls, they can all be parallelized without repe
 allocation.
 """
 function Parallel(TX=Float64, TI=Float64, TE=Float64; order=7)
-    Parallel(Vector{TI}(undef, 2*order+1), alloc_segbuf(TX,TI,TE), alloc_segbuf(TX,TI,TE, size=2))
+    return Parallel(Vector{TI}(undef, 2*order+1), alloc_segbuf(TX,TI,TE), alloc_segbuf(TX,TI,TE, size=2))
 end
 
 
-evalrule(::Sequential, f::F, a,b, x,w,gw, nrm) where F = evalrule(f, a,b, x,w,gw, nrm)
-
-
-function batcheval!(fx, f::F, x, a, s, l, n) where {F}
+function batcheval!(fx, f::F, x, a, s, l,n) where {F}
     Threads.@threads for i in 1:n
         z = i <= l ? x[i] : -x[n-i+1]
         fx[i] = f(a + (1 + z)*s)
     end
+    return fx
 end
-function batcheval!(fx, f::InplaceIntegrand{F}, x, a, s, l, n) where {F}
+function batcheval!(fx, f::InplaceIntegrand{F}, x, a, s, l,n) where {F}
     Threads.@threads for i in 1:n
         z = i <= l ? x[i] : -x[n-i+1]
         fx[i] = zero(f.fx) # allocate the output
         f.f!(fx[i], a + (1 + z)*s)
     end
+    return fx
 end
 
-function parevalrule(fx, f::F, a,b, x,w,gw, nrm, l, n) where {F}
+function parevalrule(fx, f::F, a,b, x,w,gw, nrm,l,n) where {F}
     n1 = 1 - (l & 1) # 0 if even order, 1 if odd order
     s = convert(eltype(x), 0.5) * (b-a)
-    batcheval!(fx, f, x, a, s, l, n)
+    batcheval!(fx, f, x, a, s, l,n)
     if n1 == 0 # even: Gauss rule does not include x == 0
         Ik = fx[l] * w[end]
         Ig = zero(Ik)
@@ -208,43 +208,78 @@ function parevalrule(fx, f::F, a,b, x,w,gw, nrm, l, n) where {F}
     return Segment(oftype(s, a), oftype(s, b), Ik_s, E)
 end
 
-function evalrule(p::Parallel, f::F, a,b, x,w,gw, nrm) where {F}
+function evalrule(fx, f::F, a,b, x,w,gw, nrm) where {F}
     l = length(x)
     n = 2*l-1   # number of Kronrod points
-    n <= length(p.f) || resize!(p.f, n)
-    parevalrule(p.f, f, a,b, x,w,gw, nrm, l,n)
+    return parevalrule(fx, f, a,b, x,w,gw, nrm, l,n)
 end
 
-function eval_segs(p::Sequential, s::NTuple{N}, f::F, x,w,gw, nrm) where {N,F}
-    return ntuple(i -> evalrule(p, f, s[i][1], s[i][2], x,w,gw, nrm), Val{N}())
+struct GaussKronrod{T<:Real}
+    x::Vector{T}
+    w::Vector{T}
+    wg::Vector{T}
 end
-function eval_segs(p::Parallel, s, f::F, x,w,gw, nrm) where {F}
-    l = length(x)
-    n = 2*l-1   # number of Kronrod points
-    m = length(s)
-    resize!(p.new_segs, m)
+
+@inline GaussKronrod(T,n) = GaussKronrod(cachedrule(T, n)...)
+Base.eltype(::Type{GaussKronrod{T}}) where T = T
+countevals(g::GaussKronrod) = 2length(g.w)-1
+@inline function (g::GaussKronrod)(f::F, s, nrm=norm, buffer=nothing) where {F}
+    a, b = s
+    return evalrule(buffer, f, a,b, g.x,g.w,g.wg, nrm)
+end
+
+# inlining this seems to help with inference
+# function eval_segs(::Sequential, ::Nothing, s::NTuple{1,T}, f::F, rule, nrm::M) where {F,T,M}
+#     return (rule(f, s[1], nrm),)
+# end
+function eval_segs(::Sequential, ::Nothing, s::NTuple{N,T}, f::F, rule, nrm::M) where {N,F,T,M}
+    return ntuple(i -> rule(f, s[i], nrm), Val(N))
+end
+function eval_segs(p::Sequential, ::Vector, s::NTuple, f::F, rule, nrm) where {F}
+    return eval_segs(p, nothing, s, f, rule, nrm)
+end
+function eval_segs(::Sequential, segbuf::Vector, segitr, f::F, rule, nrm) where {F}
+    resize!(segbuf, length(segs))
+    return map!(s -> rule(f, s, nrm), segbuf, segitr)
+end
+function eval_segs(::Sequential, ::Nothing, segitr, f::F, rule, nrm) where {F}
+    return map(s -> rule(f, s, nrm), segitr) # allocation for generic iterator
+end
+function eval_segs(p::Parallel{T,S}, segbuf, segitr, f::F, rule, nrm) where {F,T,S}
+    n = countevals(rule)
+    m = length(segitr)
+    segs = segbuf === nothing ? Vector{S}(undef, m) : resize!(segbuf, m)
     (nm = n*m) <= length(p.f) || resize!(p.f, nm)
-    segs = collect(enumerate(s))
-    Threads.@threads for item in segs
-        i, (a, b) = item
-        v = view(p.f, (1+(i-1)*n):(i*n))
-        p.new_segs[i] = parevalrule(v, f, a, b, x,w,gw, nrm, l,n)
+    Threads.@threads for i in 1:m
+        s = segitr[i]
+        fx = view(p.f, (1+(i-1)*n):(i*n))
+        segs[i] = rule(f, s, nrm, fx)
     end
-    return p.new_segs
+    return segs
 end
 
 
-# Internal routine: integrate f over the union of the open intervals
-# (s[1],s[2]), (s[2],s[3]), ..., (s[end-1],s[end]), using h-adaptive
+# we have multiple codepaths
+alloc_heap(::Parallel, _, segs) = segs # we already allocated for multi-threading
+alloc_heap(::Sequential, ::Nothing, segs) = segs  # input segments were an iterator, so we already allocated
+alloc_heap(::Sequential, ::Nothing, segs::Tuple) = collect(segs)  # this & next same as quadgk (for tuple input segments)
+function alloc_heap(::Sequential, segbuf::Vector{T}, segs::NTuple{N,T}) where {N,T}
+    resize!(segbuf, N)
+    segbuf .= segs
+    return segbuf
+end
+
+# Internal routine: integrate f over an index-able iterator of segments
+# [(a1, b1), (a2, b2), ...], (optimized for tuples) using h-adaptive
 # integration with the order-n Kronrod rule and weights of type Tw,
 # with absolute tolerance atol and relative tolerance rtol,
 # with maxevals an approximate maximum number of f evaluations.
-function do_auxquadgk(f::F, s::NTuple{N,T}, n, atol, rtol, maxevals, nrm, segbuf, parallel) where {T,N,F}
-    x,w,gw = cachedrule(T,n)
+function do_auxquad(f::F, segitr::S, rule, atol, rtol, maxevals, nrm::M, segbuf, parallel) where {F,S,M}
 
-    @assert N ≥ 2
-    # return (parallel, ntuple(i -> (s[i],s[i+1]), Val(N-1)), f, x,w,gw, nrm)
-    segs = eval_segs(parallel, ntuple(i -> (s[i],s[i+1]), Val(N-1)), f, x,w,gw, nrm)
+    numevals = countevals(rule)
+    numevals *= N = length(segitr)
+    @assert N ≥ 1
+    segs = eval_segs(parallel, segbuf, segitr, f, rule, nrm)
     if f isa InplaceIntegrand
         I = f.I .= segs[1].I
         for i = 2:length(segs)
@@ -254,25 +289,25 @@ function do_auxquadgk(f::F, s::NTuple{N,T}, n, atol, rtol, maxevals, nrm, segbuf
         I = sum(s -> s.I, segs)
     end
     E = sum(s -> s.E, segs)
-    numevals = (2n+1) * (N-1)
 
     # logic here is mainly to handle dimensionful quantities: we
     # don't know the correct type of atol115, in particular, until
     # this point where we have the type of E from f.  Also, follow
     # Base.isapprox in that if atol≠0 is supplied by the user, rtol
     # defaults to zero.
+    T = float(real(eltype(eltype(segitr))))
     atol_ = something(atol, zero(E))
-    rtol_ = something(rtol, iszero(atol_) ? sqrt(eps(one(eltype(x)))) : zero(eltype(x)))
+    rtol_ = something(rtol, iszero(atol_) ? sqrt(eps(one(T))) : zero(T))
 
     # optimize common case of no subdivision
     if E ≤ atol_ || E ≤ rtol_ * nrm(I) || numevals ≥ maxevals
         return (I, E) # fast return when no subdivisions required
     end
 
-    segheap = segbuf === nothing ? collect(segs) : (resize!(segbuf, N-1) .= segs)
+    segheap = alloc_heap(parallel, segbuf, segs)
     for ord in eachorder(I)
         heapify!(segheap, ord)
-        I, E, numevals = auxadapt(f, segheap, I, E, numevals, x,w,gw,n, atol_, rtol_, maxevals, nrm, ord, parallel)
+        I, E, numevals = auxadapt(f, segheap, I, E, numevals, rule, atol_, rtol_, maxevals, nrm, ord, parallel)
         (E ≤ atol_ || E ≤ rtol_ * nrm(I) || numevals ≥ maxevals) && break
     end
     return (I, E)
@@ -294,24 +329,26 @@ function pop_segs(p::Parallel, segs, ord, E, tol)
 end
 
 # bisect segments
-function bisect_segs(p::Sequential, (s,), f::F, x,w,gw, nrm) where {F}
+function bisect_segs(p::Sequential, (s,), f::F, rule, nrm) where {F}
     mid = (s.a + s.b) / 2
-    return eval_segs(p, ((s.a, mid), (mid, s.b)), f, x,w,gw, nrm)
+    return eval_segs(p, nothing, ((s.a, mid), (mid, s.b)), f, rule, nrm)
 end
 
-function bisect_segs(p::Parallel, old_segs, f::F, x,w,gw, nrm) where {F}
-    lims = map(s -> (mid=(s.a+s.b)/2 ; ((s.a,mid), (mid,s.b))), old_segs)
-    eval_segs(p, Iterators.flatten(lims), f, x,w,gw, nrm)
+function bisect_segs(p::Parallel, old_segs, f::F, rule, nrm) where {F}
+    gen = ((s.a, (s.a+s.b)/2, s.b) for s in old_segs)
+    lims = [(lb, ub) for (a, mid, b) in gen for (lb, ub) in ((a, mid), (mid, b))]
+    eval_segs(p, p.new_segs, lims, f, rule, nrm)
 end
 
 
 # internal routine to perform the h-adaptive refinement of the integration segments (segs)
-function auxadapt(f::F, segs::Vector{T}, I, E, numevals, x,w,gw,n, atol, rtol, maxevals, nrm, ord, parallel) where {F, T}
+function auxadapt(f::F, segs::Vector{T}, I, E, numevals, rule, atol, rtol, maxevals, nrm, ord, parallel) where {F, T}
     # Pop the biggest-error segment and subdivide (h-adaptation)
     # until convergence is achieved or maxevals is exceeded.
+    evalsperseg = countevals(rule)
     while (tol = max(atol, rtol*nrm(I)); Base.Order.lt(ord, E, tol)) && numevals < maxevals
         old_segs = pop_segs(parallel, segs, ord, E, tol)
-        new_segs = bisect_segs(parallel, old_segs, f, x,w,gw, nrm)
+        new_segs = bisect_segs(parallel, old_segs, f, rule, nrm)
 
         if f isa InplaceIntegrand
             for i = eachindex(old_segs)
@@ -324,18 +361,22 @@ function auxadapt(f::F, segs::Vector{T}, I, E, numevals, x,w,gw,n, atol, rtol, m
             I = (I - sum(s -> s.I, old_segs)) + sum(s -> s.I, new_segs)
         end
         E = (E - sum(s -> s.E, old_segs)) + sum(s -> s.E, new_segs)
-        numevals += length(new_segs)*(2n+1)
+        numevals += length(new_segs)*evalsperseg
 
         # handle type-unstable functions by converting to a wider type if needed
-        Tj = promote_type(T, typeof.(new_segs)...)
+        Tj = promote_type(T, map(typeof, new_segs)...)
         if Tj !== T
             segs_ = Vector{Tj}(segs)
-            foreach(s -> heappush!(segs_, s, ord), new_segs)
-            return adapt(f, segs_,
-                         I, E, numevals, x,w,gw,n, atol, rtol, maxevals, nrm, parallel)
+            for s in new_segs
+                heappush!(segs_, s, ord)
+            end
+            return auxadapt(f, segs_,
+                         I, E, numevals, rule, atol, rtol, maxevals, nrm, ord, parallel)
         end
 
-        foreach(s -> heappush!(segs, s, ord), new_segs)
+        for s in new_segs
+            heappush!(segs, s, ord)
+        end
     end
 
     # re-sum (paranoia about accumulated roundoff)
@@ -360,89 +401,15 @@ end
 auxquadgk(f, segs...; kws...) =
     auxquadgk(f, promote(segs...)...; kws...)
 
+initial_segs(s::NTuple{N}) where N = ntuple(i -> (s[i],s[i+1]), Val(N-1))
 function auxquadgk(f, segs::T...;
        atol=nothing, rtol=nothing, maxevals=10^7, order=7, norm=norm, segbuf=nothing, parallel=Sequential()) where {T}
+    rule = GaussKronrod(T, order)
+
     handle_infinities(f, segs) do g, s, _
-        do_auxquadgk(g, s, order, atol, rtol, maxevals, norm, segbuf, parallel)
+        do_auxquad(g, initial_segs(s), rule, atol, rtol, maxevals, norm, segbuf, parallel)
     end
 end
 
-function do_nested_auxquadgk(q::QuadNest{1})
-    segs = iterated_segs(q.f, q.l, q.a, q.b, q.initdivs[1])
-    do_auxquadgk(q.f, segs, q.order, q.atol, q.rtol, q.maxevals, q.norm, q.segbufs[1][1], q.segbufs[1][2])
-end
-
-function do_nested_auxquadgk(q::QuadNest{d,F,L,T}) where {d,F,L,T}
-    segs = iterated_segs(q.f, q.l, q.a, q.b, q.initdivs[d])
-    atol = iterated_outer_tol(q.atol, q.a, q.b)
-    func = FunctionWrapper{q.types[d],Tuple{T}}(q)
-    do_auxquadgk(func, segs, q.order, atol, q.rtol, q.maxevals, q.norm, q.segbufs[d][1], q.segbufs[d][2])
-end
-
-nested_auxquadgk(f, a, b; kwargs...) = nested_auxquadgk(f, CubicLimits(a, b); kwargs...)
-nested_auxquadgk(f::Function, l; kwargs...) = nested_auxquadgk(ThunkIntegrand{ndims(l)}(f), l; kwargs...)
-function nested_auxquadgk(f::F, l::L; order=7, atol=nothing, rtol=nothing, norm=norm, maxevals=10^7, initdivs=nothing, segbufs=nothing, parallels=nothing) where {F,L}
-    initdivs_ = initdivs === nothing ? ntuple(i -> Val(1), Val(ndims(l))) : initdivs
-    segbufs_ = segbufs === nothing ? alloc_segbufs(f, l) : segbufs
-    parallels_ = parallels === nothing ? ntuple(i -> Sequential(), Val(ndims(l))) : parallels
-    atol_ = something(atol, zero(eltype(l)))
-    rtol_ = something(rtol, iszero(atol_) ? sqrt(eps(one(eltype(l)))) : zero(eltype(l)))
-    a, b = endpoints(l)
-    types = types_of_segbufs(segbufs_, Val(ndims(l)))
-    q = QuadNest(Val(ndims(l)), f, l,a,b, order, atol_, rtol_, maxevals, norm, initdivs_, ntuple(i -> (segbufs_[i], parallels_[i]), Val(ndims(l))), do_nested_auxquadgk, types)
-    do_nested_auxquadgk(q)
-end
-
-"""
-    Parallel(domain_type, range_type, error_type, ndim::Int; order=7)
-
-Allocate `ndim` parallelization buffers for use in `nested_auxquadgk`.
-"""
-function Parallel(TX, TI, TE, ndim::Int; order=7)
-    ntuple(n -> Parallel(TX, TI, TE; order=order), ndim)
-end
-
-
-"""
-    nested_auxquadgk(f, a, b; kwargs...)
-    nested_auxquadgk(f::Function, l; kwargs...)
-    nested_auxquadgk(f::AbstractIteratedIntegrand{d}, ::AbstractIteratedLimits{d}; order=7, atol=nothing, rtol=nothing, norm=norm, maxevals=typemax(Int), initdivs=ntuple(i -> Val(1), Val{d}()), segbufs=nothing) where d
-
-Calls `auxquadgk` to perform iterated 1D integration of `f` over a compact domain parametrized
-by `AbstractIteratedLimits` `l`. In the case two points `a` and `b` are passed, the
-integration region becomes the hypercube with those extremal vertices (which mimics
-`hcubature`). `f` must implement the [`AbstractIteratedIntegrand`](@ref) interface, or if it
-is a `Function` it will be wrapped in a [`ThunkIntegrand`](@ref) so that it is treated like
-one. `f` is assumed to be type-stable and its return type is inferred and enforced. Errors
-from `iterated_inference` are an indication that inference failed and there could be an
-instability or bug with the integrand.
-
-Returns a tuple `(I, E)` of the estimated integral and estimated error.
-
-Keyword options include a relative error tolerance `rtol` (if `atol==0`,
-defaults to `sqrt(eps)` in the precision of the norm of the return type), an
-absolute error tolerance `atol` (defaults to 0), a maximum number of function
-evaluations `maxevals` for each nested integral (defaults to `10^7`), and the
-`order` of the integration rule (defaults to 7).
-
-The algorithm is an adaptive Gauss-Kronrod integration technique: the integral
-in each interval is estimated using a Kronrod rule (`2*order+1` points) and the
-error is estimated using an embedded Gauss rule (`order` points). The interval
-with the largest error is then subdivided into two intervals and the process is
-repeated until the desired error tolerance is achieved. This 1D procedure is
-applied recursively to each variable of integration in an order determined by
-`l` to obtain the multi-dimensional integral.
-
-Unlike `quadgk`, this routine does not allow infinite limits of integration nor
-unions of intervals to avoid singular points of the integrand. However, the
-`initdivs` keyword allows passing a tuple of integers which specifies the
-initial number of panels in each `quadgk` call at each level of integration.
-
-In normal usage, `nested_quadgk` will allocate segment buffers. You can
-instead pass a preallocated buffer allocated using [`alloc_segbufs`](@ref) as
-the segbuf argument. This buffer can be used across multiple calls to avoid
-repeated allocation.
-"""
-nested_auxquadgk
 
 end

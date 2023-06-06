@@ -1,21 +1,27 @@
 """
     AbstractIteratedLimits{d,T}
 
-Supertype for limits that work with iterated integration
+Supertype for limits of integration over a domain with elements of type `SVector{d,T}`.
+In order to work with iterated integration, the following methods must be implemented
+
+# Interface
+- [`nextdim`](@ref): returns `Val(n)` where `n` is the next variable of integration
+- [`segments`](@ref): returns an iterator over intervals to integrate in the current dimension
+- [`fixandeliminate`](@ref): return another limit object with one of the variables of
+  integration eliminated
 """
-abstract type AbstractIteratedLimits{d,T<:AbstractFloat} end
+abstract type AbstractIteratedLimits{d,T<:Number} end
 
 Base.ndims(::AbstractIteratedLimits{d}) where {d} = d
 Base.eltype(::Type{<:AbstractIteratedLimits{d,T}}) where {d,T} = T
 
 
 """
-    endpoints(::AbstractLimits)
+    segments(::AbstractLimits)
 
-Return a tuple with the extrema of the next variable of integration. This is
-equivalent to projecting the integration domain onto one dimension.
+Return a `segitr`, i.e. an iterator over interval
 """
-function endpoints end
+function segments end
 
 """
     fixandeliminate(l::AbstractIteratedLimits, x)

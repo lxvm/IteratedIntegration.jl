@@ -26,31 +26,27 @@ include("definitions.jl")
 export CubicLimits, TetrahedralLimits, ProductLimits, TranslatedLimits, load_limits
 include("iterated_limits.jl")
 
-export ThunkIntegrand, IteratedIntegrand, ProductIteratedIntegrand
-include("iterated_integrands.jl")
 
-export nested_quadgk
-include("nested_quadgk.jl")
+export auxquadgk, AuxValue, Sequential, Parallel
+include("RuleQuad.jl")
+using .RuleQuad
+import .RuleQuad: countevals
 
-export auxquadgk, nested_auxquadgk, AuxValue, Sequential, Parallel
-include("AuxQuad.jl")
-using .AuxQuad
+export nested_quad
+include("nested_quad.jl")
 
-export iai, iai_buffer
-include("iai.jl")
-
-for routine in (:nested_quadgk, :nested_auxquadgk, :iai)
+for routine in (:nested_quad, :auxquadgk)
     routine_count = Symbol(routine, :_count)
     routine_print = Symbol(routine, :_print)
 
     @eval export $routine_count, $routine_print
 
-    @eval $routine_count(f, a, b; kwargs...) =
-        $routine_count(f, CubicLimits(a, b); kwargs...)
-    @eval function $routine_count(f, l; kwargs...)
+    @eval function $routine_count(f, args...; kwargs...)
         numevals::Int = 0
-        g = ThunkIntegrand{ndims(l)}(x -> (numevals += 1; f(x)))
-        I, E = $routine(g, l; kwargs...)
+        I, E = $routine(args...; kwargs...) do x
+            numevals += 1
+            return f(x)
+        end
         return (I, E, numevals)
     end
 

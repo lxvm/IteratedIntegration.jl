@@ -1,3 +1,4 @@
+# this file is kept for proof of concept, however I do not intend to maintain it
 mutable struct HeapNode{T,TX,TI,TE}
     h::BinaryMaxHeap{T}
     I::TI
