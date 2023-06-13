@@ -79,6 +79,8 @@ struct AuxValue{T}
     aux::T
 end
 
+Base.zero(::Type{AuxValue{T}}) where {T} = AuxValue(zero(T), zero(T))
+
 struct KeyOrdering{T<:Base.Order.Ordering} <: Base.Order.Ordering
     o::T
     k::Symbol
@@ -402,12 +404,12 @@ auxquadgk(f, segs...; kws...) =
     auxquadgk(f, promote(segs...)...; kws...)
 
 initial_segs(s::NTuple{N}) where N = ntuple(i -> (s[i],s[i+1]), Val(N-1))
-function auxquadgk(f, segs::T...;
+function auxquadgk(f, segs::T...; rule = nothing,
        atol=nothing, rtol=nothing, maxevals=10^7, order=7, norm=norm, segbuf=nothing, parallel=Sequential()) where {T}
-    rule = GaussKronrod(T, order)
+    rule_ = (rule===nothing) ? GaussKronrod(T, order) : rule
 
     handle_infinities(f, segs) do g, s, _
-        do_auxquad(g, initial_segs(s), rule, atol, rtol, maxevals, norm, segbuf, parallel)
+        do_auxquad(g, initial_segs(s), rule_, atol, rtol, maxevals, norm, segbuf, parallel)
     end
 end
 

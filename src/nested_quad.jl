@@ -125,11 +125,11 @@ preallocated buffer allocated using [`alloc_segbufs`](@ref) as the segbuf argume
 buffer can be used across multiple calls to avoid repeated allocation.
 """
 nested_quad(f, a, b; kwargs...) = nested_quad(f, CubicLimits(a, b); kwargs...)
-function nested_quad(f::F, l::L; order=7, atol=nothing, rtol=nothing, norm=norm, maxevals=10^7, initdivs=nothing, segbufs=nothing, parallels=nothing, rule=NestedGaussKronrod, RT=nothing) where {F,d,T,L<:AbstractIteratedLimits{d,T}}
+function nested_quad(f::F, l::L; order=7, atol=nothing, rtol=nothing, norm=norm, maxevals=10^7, initdivs=nothing, segbufs=nothing, parallels=nothing, rule=nothing, RT=nothing) where {F,d,T,L<:AbstractIteratedLimits{d,T}}
     initdivs_ = initdivs === nothing ? ntuple(i -> Val(1), Val(d)) : initdivs
     segbufs_ = segbufs === nothing ? ntuple(i -> nothing, Val(d)) : segbufs
     parallels_ = parallels === nothing ? ntuple(i -> Sequential(), Val(d)) : parallels
-    rule_ = rule(T, order, Val(d))
+    rule_ = rule === nothing ? NestedGaussKronrod(T, order, Val(d)) : rule
     TF = typeof(float(real(one(T))))
     atol_ = something(atol, zero(TF))
     rtol_ = something(rtol, iszero(atol_) ? sqrt(eps(one(TF))) : zero(TF))
