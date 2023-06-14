@@ -143,7 +143,7 @@ Base.isequal(a, b::AuxValue) = isequal(a, b.val) && isequal(a, b.aux)
 
 struct Sequential end
 
-@inline evalrule(::Nothing, f::F, a,b, x,w,gw, nrm) where F = evalrule(f, a,b, x,w,gw, nrm)
+evalrule(::Nothing, f::F, a,b, x,w,gw, nrm) where F = evalrule(f, a,b, x,w,gw, nrm)
 
 struct Parallel{T,S}
     f::Vector{T} # array to store function evaluations
@@ -241,8 +241,11 @@ function eval_segs(p::Sequential, ::Vector, s::NTuple, f::F, rule, nrm) where {F
     return eval_segs(p, nothing, s, f, rule, nrm)
 end
 function eval_segs(::Sequential, segbuf::Vector, segitr, f::F, rule, nrm) where {F}
-    resize!(segbuf, length(segs))
-    return map!(s -> rule(f, s, nrm), segbuf, segitr)
+    resize!(segbuf, length(segitr))
+    for (i, s) in zip(eachindex(segbuf), segitr)
+        segbuf[i] = rule(f, s, nrm)
+    end
+    return segbuf
 end
 function eval_segs(::Sequential, ::Nothing, segitr, f::F, rule, nrm) where {F}
     return map(s -> rule(f, s, nrm), segitr) # allocation for generic iterator
@@ -263,7 +266,7 @@ end
 
 # we have multiple codepaths
 alloc_heap(::Parallel, _, segs) = segs # we already allocated for multi-threading
-alloc_heap(::Sequential, ::Nothing, segs) = segs  # input segments were an iterator, so we already allocated
+alloc_heap(::Sequential, _, segs) = segs  # input segments were an iterator, so we already allocated
 alloc_heap(::Sequential, ::Nothing, segs::Tuple) = collect(segs)  # this & next same as quadgk (for tuple input segments)
 function alloc_heap(::Sequential, segbuf::Vector{T}, segs::NTuple{N,T}) where {N,T}
     resize!(segbuf, N)
