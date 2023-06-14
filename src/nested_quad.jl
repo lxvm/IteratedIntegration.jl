@@ -43,14 +43,14 @@ function do_nested_quad(::Val{1}, FW::Val, f, l, rule, atol, rtol, maxevals, nrm
 end
 
 # dim stores the active/current dimension
-struct QuadNest{d,FW,F,L,R,A,N,I,S,P}
+struct QuadNest{d,FW,F,L,R,A,Z,N,I,S,P}
     dim::Val{d}
     fw::Val{FW}
     f::F
     l::L
     rule::R
     atol::A
-    rtol::A
+    rtol::Z
     maxevals::Int
     norm::N
     initdivs::I
@@ -133,7 +133,7 @@ function nested_quad(f::F, l::L; order=7, atol=nothing, rtol=nothing, norm=norm,
     TF = typeof(float(real(one(T))))
     atol_ = something(atol, zero(TF))
     rtol_ = something(rtol, iszero(atol_) ? sqrt(eps(one(TF))) : zero(TF))
-    RT_ = RT === nothing ? Base.promote_op(f, rule_type(rule_)) : RT
+    RT_ = RT === nothing ? typeof(f(zero(rule_type(rule_)))) : RT
     FW = FunctionWrapper{RT_, Tuple{float(T)}}
     do_nested_quad(Val(d), Val(FW), f, l, rule_, atol_, rtol_, maxevals, norm, initdivs_, segbufs_, parallels_)
 end

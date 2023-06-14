@@ -11,16 +11,11 @@ module IteratedIntegration
 using LinearAlgebra
 
 using StaticArrays
-
-using DataStructures: BinaryMaxHeap, extract_all!
 using FunctionWrappers: FunctionWrapper
-using QuadGK: quadgk, do_quadgk, alloc_segbuf, cachedrule, Segment
+using QuadGK: alloc_segbuf
 
-import Base.Order.Reverse
-import QuadGK: evalrule
 
-export AbstractIteratedLimits, AbstractIteratedIntegrand
-export iterated_pre_eval, iterated_integrand
+export AbstractIteratedLimits
 include("definitions.jl")
 
 export CubicLimits, TetrahedralLimits, ProductLimits, TranslatedLimits, load_limits
