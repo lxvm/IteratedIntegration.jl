@@ -17,6 +17,7 @@ PolyhedralLimits(p::Polyhedron) = PolyhedralLimits{fulldim(p)}(p)
 # TODO: compute vrep at the same time
 function fixandeliminate(l::PolyhedralLimits{d}, x, ::Val{dim}) where {d,dim}
     p = Polyhedra.fixandeliminate(l.p, dim, x)
+    points(p)
     vrep(p) # compute/save the vrep
     return PolyhedralLimits{d-1}(p)
 end
@@ -24,15 +25,30 @@ end
 function segments_(v::VRepresentation, dim::Integer)
     hasallrays(v) && error("Infinite limits not implemented: found ray in V representation")
     (d = fulldim(v)) >= dim >= 1 || error("V representation of fulldim $d doesn't have index $dim")
-    segs = unique((x=p[end]; (x,x)) for p in points(v))
-    sort!(segs)
-    for i in eachindex(@view(segs[begin:end-1]))
-        segs[i] = (segs[i][1], segs[i+1][1])
+    pts = points(v)
+    rtol = atol = sqrt(eps(eltype(eltype(pts))))
+    segs=Vector{NTuple{2,eltype(eltype(pts))}}(undef, length(pts))
+    numpts = 0
+    for p in pts
+        vert = p[dim]
+        test = isapprox(vert, atol=atol, rtol=rtol)
+        if !any(x -> test(x[1]), @view(segs[begin:begin+numpts-1]))
+            numpts += 1
+            segs[numpts] = (vert,vert)
+        end
     end
-    deleteat!(segs, lastindex(segs))
+    @assert numpts >= 2 segs
+    resize!(segs,numpts)
+    sort!(segs)
+    top = pop!(segs)
+    for i in numpts-1:-1:1
+        segs[i] = top = (segs[i][2],top[1])
+    end
     return segs
 end
-segments(l::PolyhedralLimits{d}, dim=d) where d = segments_(vrep(l.p), dim)
+function segments(l::PolyhedralLimits{d}, dim=d) where d
+    segments_(vrep(l.p), dim)
+end
 
 load_limits(p::Polyhedron) = PolyhedralLimits(p)
 
