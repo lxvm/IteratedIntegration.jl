@@ -139,7 +139,9 @@ Base.isequal(a, b::AuxValue) = isequal(a, b.val) && isequal(a, b.aux)
 # Base.max(a::AuxValue, b::AuxValue) = AuxValue(max(a.val, b.val), max(a.aux, b.aux))
 # Base.max(a::AuxValue, b) = AuxValue(max(a.val, b), max(a, b.aux))
 # Base.max(a, b::AuxValue) = AuxValue(max(a, b.val), max(a, b.aux))
-
+function Base.isapprox(a::AuxValue, b::AuxValue; kwargs...)
+    return isapprox(a.val, b.val; kwargs...) & isapprox(a.aux, b.aux; kwargs...)
+end
 
 struct Sequential end
 
