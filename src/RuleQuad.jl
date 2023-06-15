@@ -348,6 +348,13 @@ function bisect_segs(p::Parallel, old_segs, f::F, rule, nrm) where {F}
 end
 
 
+seg_type(::Vector{T}) where {T} = T
+seg_type(::Tuple{Vararg{T}}) where {T} = T
+seg_type(t::Tuple) = seg_type_(t...)
+seg_type_() = error("no segment")
+seg_type_(::T) where {T} = T
+seg_type_(::T, args...) where {T} = promote_type(T, seg_type_(args...))
+
 # internal routine to perform the h-adaptive refinement of the integration segments (segs)
 function auxadapt(f::F, segs::Vector{T}, I, E, numevals, rule, atol, rtol, maxevals, nrm, ord, parallel) where {F, T}
     # Pop the biggest-error segment and subdivide (h-adaptation)
@@ -371,7 +378,7 @@ function auxadapt(f::F, segs::Vector{T}, I, E, numevals, rule, atol, rtol, maxev
         numevals += length(new_segs)*evalsperseg
 
         # handle type-unstable functions by converting to a wider type if needed
-        Tj = promote_type(T, map(typeof, new_segs)...)
+        Tj = promote_type(T, seg_type(new_segs))
         if Tj !== T
             segs_ = Vector{Tj}(segs)
             for s in new_segs
