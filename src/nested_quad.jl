@@ -139,14 +139,18 @@ function nested_quad(f::F, l::L; order=7, atol=nothing, rtol=nothing, norm=norm,
 end
 
 """
-    alloc_segbufs(coefficient_type, range_type, norm_type, ndim)
+    alloc_segbufs(ndim, [coefficient_type, range_type, norm_type])
 
-This helper function will allocate enough segment buffers as are needed for an
+This helper function will allocate enough segment buffers as are needed for a
 `nested_quadgk` call of integrand `f` and integration limits `l`.
 `coefficient_type` should be `eltype(l)`, `typesof_fx` should be the return type of the
 integrand `f` for each iteration of integration, `typesof_nfx` should be the
 types of the norms of a value of `f` for each iteration of integration, and
 `ndim` should be `ndims(l)`.
 """
-alloc_segbufs(coefficient_type, range_type, norm_type, ndim::Int) =
-    ntuple(n -> alloc_segbuf(coefficient_type, range_type, norm_type), ndim)
+function alloc_segbufs(ndim::Integer, args...; kwargs...)
+    return ntuple(n -> alloc_segbuf(args...; kwargs...), ndim)
+end
+function RuleQuad.Parallel(ndim::Integer, args...; kwargs...)
+    return ntuple(n -> Parallel(args...; kwargs...), ndim)
+end
