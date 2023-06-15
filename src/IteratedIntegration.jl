@@ -37,12 +37,12 @@ for routine in (:nested_quad, :auxquadgk)
     @eval export $routine_count, $routine_print
 
     @eval function $routine_count(f, args...; kwargs...)
-        numevals::Int = 0
+        numevals = Threads.Atomic{Int}(0)
         I, E = $routine(args...; kwargs...) do x
-            numevals += 1
+            Threads.atomic_add!(numevals, 1)
             return f(x)
         end
-        return (I, E, numevals)
+        return (I, E, numevals[])
     end
 
     @eval $routine_print(io::IO, f, args...; kws...) = $routine_count(args...; kws...) do x

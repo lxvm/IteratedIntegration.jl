@@ -146,6 +146,17 @@ using HCubature
             end
         end
     end
+
+    # run with multiple threads for this test
+    @testset "multidimensional parallelization" for dims in 1:3
+        f(x) = sum(cos, 13x) # requires subdivisions
+        dom = CubicLimits(zeros(dims), ones(dims))
+        ref, = nested_quad(f, dom; atol=1e-8) # non-threaded reference
+        for i in 1:dims
+            sol, = nested_quad(f, dom; atol=1e-8, parallels=(Parallel(i)..., ntuple(j->Sequential(), dims-i)...))
+            @test sol ≈ ref
+        end
+    end
 end
 
 @testset "PolyhedraExt" begin

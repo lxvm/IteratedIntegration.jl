@@ -36,16 +36,21 @@ rule_type(::NestedGaussKronrod{dim,d,X,T}) where {dim,d,X,T} = SVector{dim+d,X}
 function (g::NestedGaussKronrod{1})(f::F, s, nrm=norm, buffer=nothing) where {F}
     return g.g(x -> f(pushfirst(g.x, x)), s, nrm, buffer)
 end
+
 # the signal to do the innermost integral is when the total remaining dimension is 1
-function do_nested_quad(::Val{1}, FW::Val, f, l, rule, atol, rtol, maxevals, nrm, initdivs, segbufs, parallels)
+function do_nested_quad(::Val{1}, FW::Val, ::Val{ispar}, f, l, rule, atol, rtol, maxevals, nrm, initdivs, segbufs, parallels) where {ispar}
     segs = initsegs(segments(l, 1), initdivs[1])
-    return RuleQuad.do_auxquad(f, segs, rule, atol, rtol, maxevals, nrm, segbufs[1], parallels[1])
+    segbuf = ispar ? deepcopy(segbufs[1]) : segbufs[1]
+    parallel = ispar ? deepcopy(parallels[1]) : parallels[1]
+    # we might have to copy the integrand or the rule if they are not threadsafe
+    return RuleQuad.do_auxquad(f, segs, rule, atol, rtol, maxevals, nrm, segbuf, parallel)
 end
 
 # dim stores the active/current dimension
-struct QuadNest{d,FW,F,L,R,A,Z,N,I,S,P}
+struct QuadNest{d,FW,T,F,L,R,A,Z,N,I,S,P}
     dim::Val{d}
     fw::Val{FW}
+    par::Val{T}
     f::F
     l::L
     rule::R
@@ -77,19 +82,22 @@ restof(valdim::V, t::Tuple) where {V} = restof_(valdim, t...)
 function (q::QuadNest{dim})(x) where {dim}
     rule = nextrule(q.rule, x, Val(dim))
     l = fixandeliminate(q.l, x, Val(dim))
-    I, = do_nested_quad(Val(ndims(l)), q.fw, q.f, l, rule, q.atol, q.rtol, q.maxevals, q.norm, q.initdivs, q.segbufs, q.parallels)
+    I, = do_nested_quad(Val(ndims(l)), q.fw, q.par, q.f, l, rule, q.atol, q.rtol, q.maxevals, q.norm, q.initdivs, q.segbufs, q.parallels)
     return I
 end
 
-function do_nested_quad(::Val{d}, fw::Val{FW}, f, l, rule, atol, rtol, maxevals, nrm, initdivs, segbufs, parallels) where {d,FW}
+function do_nested_quad(::Val{d}, fw::Val{FW}, ::Val{ispar}, f, l, rule, atol, rtol, maxevals, nrm, initdivs, segbufs, parallels) where {d,FW,ispar}
     dim = nextdim(rule)
     segs = initsegs(segments(l, dim), initdivs[dim])
     initdivs_= restof(Val(dim), initdivs)
-    segbufs_ = restof(Val(dim), segbufs)
-    parallels_ = restof(Val(dim), parallels)
-    q = QuadNest(Val(dim), fw, f, l, rule, nextatol(atol, segs), rtol, maxevals, nrm, initdivs_, segbufs_, parallels_)
+    _parallels = ispar ? deepcopy(parallels) : parallels
+    _segbufs = ispar ? deepcopy(segbufs) : segbufs
+    segbufs_ = restof(Val(dim), _segbufs)
+    parallels_ = restof(Val(dim), _parallels)
+    v = Val(parallels[dim] isa Parallel)
+    q = QuadNest(Val(dim), fw, v, f, l, rule, nextatol(atol, segs), rtol, maxevals, nrm, initdivs_, segbufs_, parallels_)
     fun = FW(q) # we put the FunctionWrapper here since this leads to much less specialization
-    return RuleQuad.do_auxquad(fun, segs, rule, atol, rtol, maxevals, nrm, segbufs[dim], parallels[dim])
+    return RuleQuad.do_auxquad(fun, segs, rule, atol, rtol, maxevals, nrm, _segbufs[dim], _parallels[dim])
 end
 
 """
@@ -120,22 +128,27 @@ intervals to avoid singular points of the integrand. However, the `initdivs` key
 passing a tuple of integers which specifies the initial number of panels in each `quadgk`
 call at each level of integration.
 
-In normal usage, `nested_quadgk` will allocate segment buffers. You can instead pass a
+In normal usage, `nested_quad` will allocate segment buffers. You can instead pass a
 preallocated buffer allocated using [`alloc_segbufs`](@ref) as the segbuf argument. This
 buffer can be used across multiple calls to avoid repeated allocation.
+
+Additionally, parallelization is made possible through the `parallels` keyword that can be
+passed a tuple of `Parallel` or `Sequential` buffers to indicate whether to execute adaptive
+integration in each dimension either in parallel or serially. Note that the integrand must
+be threadsafe
 """
 nested_quad(f, a, b; kwargs...) = nested_quad(f, CubicLimits(a, b); kwargs...)
 function nested_quad(f::F, l::L; order=7, atol=nothing, rtol=nothing, norm=norm, maxevals=10^7, initdivs=nothing, segbufs=nothing, parallels=nothing, rule=nothing, RT=nothing) where {F,d,T,L<:AbstractIteratedLimits{d,T}}
     initdivs_ = initdivs === nothing ? ntuple(i -> Val(1), Val(d)) : initdivs
     segbufs_ = segbufs === nothing ? ntuple(i -> nothing, Val(d)) : segbufs
     parallels_ = parallels === nothing ? ntuple(i -> Sequential(), Val(d)) : parallels
-    rule_ = rule === nothing ? NestedGaussKronrod(T, order, Val(d)) : rule
+    rule_ = rule === nothing ? NestedGaussKronrod(T, order, Val(d)) : rule # needs to be thread-safe!
     TF = typeof(float(real(one(T))))
     atol_ = something(atol, zero(TF))
     rtol_ = something(rtol, iszero(atol_) ? sqrt(eps(one(TF))) : zero(TF))
     RT_ = RT === nothing ? typeof(f(zero(rule_type(rule_)))) : RT
     FW = FunctionWrapper{RT_, Tuple{float(T)}}
-    do_nested_quad(Val(d), Val(FW), f, l, rule_, atol_, rtol_, maxevals, norm, initdivs_, segbufs_, parallels_)
+    do_nested_quad(Val(d), Val(FW), Val(false), f, l, rule_, atol_, rtol_, maxevals, norm, initdivs_, segbufs_, parallels_)
 end
 
 """
