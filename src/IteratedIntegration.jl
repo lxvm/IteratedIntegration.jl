@@ -23,9 +23,8 @@ include("iterated_limits.jl")
 
 
 export auxquadgk, AuxValue, Sequential, Parallel
-include("RuleQuad.jl")
-using .RuleQuad
-import .RuleQuad: countevals
+include("AuxQuadGK.jl")
+using .AuxQuadGK
 
 export nested_quad
 include("nested_quad.jl")

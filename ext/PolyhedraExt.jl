@@ -27,27 +27,23 @@ function segments_(v::VRepresentation, dim::Integer)
     (d = fulldim(v)) >= dim >= 1 || error("V representation of fulldim $d doesn't have index $dim")
     pts = points(v)
     rtol = atol = sqrt(eps(eltype(eltype(pts))))
-    segs=Vector{NTuple{2,eltype(eltype(pts))}}(undef, length(pts))
+    segs=Vector{eltype(eltype(pts))}(undef, length(pts))
     numpts = 0
     for p in pts
         vert = p[dim]
         test = isapprox(vert, atol=atol, rtol=rtol)
         if !any(x -> test(x[1]), @view(segs[begin:begin+numpts-1]))
             numpts += 1
-            segs[numpts] = (vert,vert)
+            segs[numpts] = vert
         end
     end
     @assert numpts >= 2 segs
     resize!(segs,numpts)
     sort!(segs)
-    top = pop!(segs)
-    for i in numpts-1:-1:1
-        segs[i] = top = (segs[i][2],top[1])
-    end
     return segs
 end
 function segments(l::PolyhedralLimits{d}, dim=d) where d
-    segments_(vrep(l.p), dim)
+    return segments_(vrep(l.p), dim)
 end
 
 load_limits(p::Polyhedron) = PolyhedralLimits(p)

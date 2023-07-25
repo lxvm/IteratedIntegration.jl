@@ -5,21 +5,27 @@ Supertype for limits of integration over a domain with elements of type `SVector
 In order to work with iterated integration, the following methods must be implemented
 
 # Interface
-- [`nextdim`](@ref): returns `Val(n)` where `n` is the next variable of integration
 - [`segments`](@ref): returns an iterator over intervals to integrate in the current dimension
 - [`fixandeliminate`](@ref): return another limit object with one of the variables of
   integration eliminated
+
+the domain of integration must be convex.
 """
 abstract type AbstractIteratedLimits{d,T<:Number} end
 
+
 Base.ndims(::AbstractIteratedLimits{d}) where {d} = d
 Base.eltype(::Type{<:AbstractIteratedLimits{d,T}}) where {d,T} = T
-
+function iterate(::AbstractIteratedLimits{d}, v::Val{dim}=Val(d)) where {d,dim}
+    dim === 1 && return nothing
+    return (v, Val(dim-1))
+end
 
 """
-    segments(::AbstractLimits)
+    segments(::AbstractLimits, dim)
 
-Return a `segitr`, i.e. an iterator over interval
+Return an iterator over endpoints and breakpoints in the limits along dimension `dim`.
+They must be sorted.
 """
 function segments end
 

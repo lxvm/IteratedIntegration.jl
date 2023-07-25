@@ -22,7 +22,7 @@ function fixandeliminate(c::CubicLimits{d,T}, _, ::Val{dim}) where {d,T,dim}
     return CubicLimits{d-1,T}(deleteat(c.a, dim), deleteat(c.b, dim))
 end
 function segments(c::CubicLimits, dim)
-    return ((c.a[dim], c.b[dim]),)
+    return (c.a[dim], c.b[dim])
 end
 
 """
@@ -53,7 +53,7 @@ function fixandeliminate(t::TetrahedralLimits{d,T}, x, ::Val{d}) where {d,T}
 end
 function segments(t::TetrahedralLimits{d,T}, dim) where {d,T}
     @assert d == dim
-    return ((zero(T), t.a[d]*t.s),)
+    return (zero(T), t.a[d]*t.s)
 end
 
 
@@ -109,10 +109,12 @@ function TranslatedLimits(l::AbstractIteratedLimits{d,C}, t::NTuple{d}) where {d
     return TranslatedLimits{d,C}(l, map(x -> convert(C, x), t))
 end
 
-endpoints(t::TranslatedLimits) = map(x -> x + t.t[ndims(t)], endpoints(t.l))
-function fixandeliminate(t::TranslatedLimits{d,C}, x) where {d,C}
-    l = fixandeliminate(t.l, convert(C, x) - t.t[ndims(t)])
+function fixandeliminate(t::TranslatedLimits{d,C}, x, ::Val{dim}) where {d,C,dim}
+    l = fixandeliminate(t.l, convert(C, x) - t.t[ndims(t)], Val(dim))
     return TranslatedLimits{d-1,C}(l, Base.front(t.t))
+end
+function segments(t::TranslatedLimits, dim)
+    return map(x -> convert(eltype(t), x) + t.t[dim], segments(t.l, dim))
 end
 
 # More ideas for limits
