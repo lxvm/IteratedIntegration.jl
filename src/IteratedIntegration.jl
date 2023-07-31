@@ -22,9 +22,17 @@ export CubicLimits, TetrahedralLimits, ProductLimits, TranslatedLimits, load_lim
 include("iterated_limits.jl")
 
 
-export auxquadgk, AuxValue, Sequential, Parallel
-include("AuxQuadGK.jl")
+export auxquadgk, AuxValue
+include("AuxQuadGK/AuxQuadGK.jl")
 using .AuxQuadGK
+
+export meroquadgk
+include("MeroQuadGK/MeroQuadGK.jl")
+using .MeroQuadGK
+
+export contquadgk
+include("ContQuadGK/ContQuadGK.jl")
+using .ContQuadGK
 
 export nested_quad
 include("nested_quad.jl")
