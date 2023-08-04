@@ -3,19 +3,19 @@
 # integration with the order-n Kronrod rule and weights of type Tw,
 # with absolute tolerance atol and relative tolerance rtol,
 # with maxevals an approximate maximum number of f evaluations.
-function do_contquadgk(f::F, s::NTuple{N,T}, n, atol, rtol, maxevals, nrm, r_segbuf, c_segbuf) where {T<:Real,N,F}
+function do_contquadgk(f::F, s::NTuple{N,T}, n, atol, rtol, maxevals, nrm, r_segbuf, c_segbuf, rho, rootmeth) where {T<:Real,N,F}
     x,w,gw = cachedrule(T,n)
+    fac = cachedlu(T,n)
 
     @assert N ≥ 2
-    segs = ntuple(i -> evalrule(f, s[i],s[i+1], x,w,gw, nrm), Val{N-1}())
-    if f isa InplaceIntegrand
-        I = f.I .= segs[1].I
-        for i = 2:length(segs)
-            I .+= segs[i].I
-        end
-    else
-        I = sum(s -> s.I, segs)
+    # TODO extend to arbitrary f by letting g::Real = inv∘norm∘f
+    fx = Vector{ComplexF64}(undef, 2n+1) # this routine designed for scalar functions
+    gx = similar(fx)
+    segs = ntuple(Val{N-1}()) do i
+        a, b = s[i], s[i+1]
+        rootrule(gx,fx,f,a,b,x,w,gw,rho,fac,rootmeth,nrm)
     end
+    I = sum(s -> s.I, segs)
     E = sum(s -> s.E, segs)
     numevals = (2n+1) * (N-1)
 
@@ -32,18 +32,18 @@ function do_contquadgk(f::F, s::NTuple{N,T}, n, atol, rtol, maxevals, nrm, r_seg
         return (I, E) # fast return when no subdivisions required
     end
 
-    r_segheap = r_segbuf === nothing ? collect(segs) : (resize!(segbuf, N-1) .= segs)
-    c_segheap = c_segbuf === nothing ? Segment{complex(typeof(r_segheap[1].a)),typeof(I),typeof(E)}[] : c_segbuf
+    r_segheap = r_segbuf === nothing ? collect(segs) : (resize!(r_segbuf, N-1) .= segs)
+    c_segheap = c_segbuf === nothing ? Segment{complex(typeof(r_segheap[1].a)),typeof(I),typeof(E)}[] : empty!(c_segbuf)
     heapify!(r_segheap, Reverse)
-    return resum(f, contadapt(f, r_segheap, c_segheap, I, E, numevals, x,w,gw,n, atol_, rtol_, maxevals, nrm)...)
+    return resum(f, contadapt(gx, fx, f, r_segheap, c_segheap, I, E, numevals, x,w,gw,n, atol_, rtol_, maxevals, nrm, rho,fac,rootmeth)...)
 end
 
 # internal routine to perform the h-adaptive refinement of the integration segments (segs)
-function contadapt(f::F, r_segs::Vector{T}, c_segs::Vector{S}, I, E, numevals, x,w,gw,n, atol, rtol, maxevals, nrm) where {F, T, S}
+function contadapt(gx, fx, f::F, r_segs::Vector{T}, c_segs::Vector{S}, I, E, numevals, x,w,gw,n, atol, rtol, maxevals, nrm, rho,fac,rootmeth) where {F, T, S}
     # Pop the biggest-error segment and subdivide (h-adaptation)
     # until convergence is achieved or maxevals is exceeded.
     while E > atol && E > rtol * nrm(I) && numevals < maxevals
-        next = contrefine(f, r_segs, c_segs, I, E, numevals, x,w,gw,n, atol, rtol, maxevals, nrm)
+        next = contrefine(gx, fx, f, r_segs, c_segs, I, E, numevals, x,w,gw,n, atol, rtol, maxevals, nrm, rho,fac,rootmeth)
         next isa Tuple{Vector,Vector} && return next # handle type-unstable functions
         I, E, numevals = next
     end
@@ -51,106 +51,81 @@ function contadapt(f::F, r_segs::Vector{T}, c_segs::Vector{S}, I, E, numevals, x
 end
 
 # internal routine to refine the segment with largest error
-function contrefine(f::F, r_segs::Vector{T}, c_segs::Vector{S}, I, E, numevals, x,w,gw,n, atol, rtol, maxevals, nrm) where {F, T, S}
+function contrefine(gx, fx, f::F, r_segs::Vector{T}, c_segs::Vector{S}, I, E, numevals, x,w,gw,n, atol, rtol, maxevals, nrm, rho,fac,rootmeth) where {F, T, S}
     if isempty(r_segs)
-        c_s = heappop!(c_segs)
-        c_contrefine(c_s, f, r_segs, c_segs, I, E, numevals, x,w,gw,n, atol, rtol, maxevals, nrm)
+        c_s = heappop!(c_segs, Reverse)
+        c_contrefine(c_s, gx, fx, f, r_segs, c_segs, I, E, numevals, x,w,gw,n, atol, rtol, maxevals, nrm, rho,fac,rootmeth)
     elseif isempty(c_segs)
-        r_s = heappop!(r_segs)
-        r_contrefine(r_s, f, r_segs, c_segs, I, E, numevals, x,w,gw,n, atol, rtol, maxevals, nrm)
+        r_s = heappop!(r_segs, Reverse)
+        r_contrefine(r_s, gx, fx, f, r_segs, c_segs, I, E, numevals, x,w,gw,n, atol, rtol, maxevals, nrm, rho,fac,rootmeth)
     else
         r_s = r_segs[1]
         c_s = c_segs[1]
         if r_s.E >= c_s.E
-            r_contrefine(heappop!(r_segs), f, r_segs, c_segs, I, E, numevals, x,w,gw,n, atol, rtol, maxevals, nrm)
+            r_contrefine(heappop!(r_segs, Reverse), gx, fx, f, r_segs, c_segs, I, E, numevals, x,w,gw,n, atol, rtol, maxevals, nrm, rho,fac,rootmeth)
         else
-            c_contrefine(heappop!(c_segs), f, r_segs, c_segs, I, E, numevals, x,w,gw,n, atol, rtol, maxevals, nrm)
+            c_contrefine(heappop!(c_segs, Reverse), gx, fx, f, r_segs, c_segs, I, E, numevals, x,w,gw,n, atol, rtol, maxevals, nrm, rho,fac,rootmeth)
         end
     end
 end
 
-# here we test out 3 kinds of refinements: real axis, upper halfplane, lower halfplane
-# should escape early if the err
-function r_contrefine(s::T, f::F, r_segs::Vector{T}, c_segs::Vector{S}, I, E, numevals, x,w,gw,n, atol, rtol, maxevals, nrm) where {F, T, S}
-    r_mid = (s.a + s.b) / 2
-    r_s1 = evalrule(f, s.a, r_mid, x,w,gw, nrm)
-    r_s2 = evalrule(f, r_mid, s.b, x,w,gw, nrm)
-    numevals += 4n+2
+function r_contrefine(s::T, gx, fx, f::F, r_segs::Vector{T}, c_segs::Vector{S}, I, E, numevals, x,w,gw,n, atol, rtol, maxevals, nrm, rho,fac,rootmeth) where {F, T, S}
+    if s.nearend || (s.nabove > 0 && s.nbelow > 0) || (s.nabove == 0 && s.nbelow == 0)
+        mid = (s.a + s.b) / 2
+        s1 = rootrule(gx,fx,f, s.a, mid, x,w,gw,rho,fac,rootmeth,nrm)
+        s2 = rootrule(gx,fx,f, mid, s.b, x,w,gw,rho,fac,rootmeth,nrm)
+        numevals += 4n+2
 
-    im_x = (s.b - s.a) / 2
-    u_mid = complex((s.a + s.b) / 2, im_x)
-    u_s1 = evalrule(f, complex(s.a), u_mid, x,w,gw, nrm)
-    u_s2 = evalrule(f, u_mid, complex(s.b), x,w,gw, nrm)
-    numevals += 4n+2
-
-    l_mid = complex((s.a + s.b) / 2, -im_x)
-    l_s1 = evalrule(f, complex(s.a), l_mid, x,w,gw, nrm)
-    l_s2 = evalrule(f, l_mid, complex(s.b), x,w,gw, nrm)
-    numevals += 4n+2
-
-    rE = r_s1.E + r_s2.E
-    lE = l_s1.E + l_s2.E
-    uE = u_s1.E + u_s2.E
-    @show r_s1.I + r_s2.I l_s1.I + l_s2.I u_s1.I + u_s2.I rE lE uE
-    if (rE <= lE) && (rE <= uE)
-        s1, s2 = (r_s1, r_s2)
-        if f isa InplaceIntegrand
-            I .= (I .- s.I) .+ s1.I .+ s2.I
-        else
-            I = (I - s.I) + s1.I + s2.I
-        end
+        I = (I - s.I) + s1.I + s2.I
         E = (E - s.E) + s1.E + s2.E
 
         # handle type-unstable functions by converting to a wider type if needed
-        Tj = promote_type(typeof(s1), promote_type(typeof(s2), T))
-        if Tj !== T
-            return contadapt(f, heappush!(heappush!(Vector{Tj}(r_segs), s1, Reverse), s2, Reverse), c_segs,
-                        I, E, numevals, x,w,gw,n, atol, rtol, maxevals, nrm)
-        end
+        # Tj = promote_type(typeof(s1), promote_type(typeof(s2), T))
+        # if Tj !== T
+        #     return contadapt(gx, fx, f, heappush!(heappush!(Vector{Tj}(r_segs), s1, Reverse), s2, Reverse), c_segs,
+        #                 I, E, numevals, x,w,gw,n, atol, rtol, maxevals, nrm, rho,fac,rootmeth)
+        # end
 
         heappush!(r_segs, s1, Reverse)
         heappush!(r_segs, s2, Reverse)
     else
-        let (s1, s2) = uE <= lE ? (u_s1, u_s2) : (l_s1, l_s2)
-            if f isa InplaceIntegrand
-                I .= (I .- s.I) .+ s1.I .+ s2.I
-            else
-                I = (I - s.I) + s1.I + s2.I
-            end
-            E = (E - s.E) + s1.E + s2.E
+        # bump contour into complex plane
+        def = (s.b - s.a) / 2
+        mid = complex((s.a + s.b) / 2, s.nabove == 0 ? def : -def)
+        s1 = evalrule(f, complex(s.a), mid, x,w,gw, nrm)
+        s2 = evalrule(f, mid, complex(s.b), x,w,gw, nrm)
+        numevals += 4n+2
 
-            # handle type-unstable functions by converting to a wider type if needed
-            Tj = promote_type(typeof(s1), promote_type(typeof(s2), S))
-            if Tj !== S
-                return contadapt(f, r_segs, heappush!(heappush!(Vector{Tj}(c_segs), s1, Reverse), s2, Reverse),
-                            I, E, numevals, x,w,gw,n, atol, rtol, maxevals, nrm)
-            end
+        I = (I - s.I) + s1.I + s2.I
+        E = (E - s.E) + s1.E + s2.E
 
-            heappush!(c_segs, s1, Reverse)
-            heappush!(c_segs, s2, Reverse)
+        # handle type-unstable functions by converting to a wider type if needed
+        Tj = promote_type(typeof(s1), promote_type(typeof(s2), S))
+        if Tj !== S
+            return contadapt(gx, fx, f, r_segs, heappush!(heappush!(Vector{Tj}(c_segs), s1, Reverse), s2, Reverse),
+                        I, E, numevals, x,w,gw,n, atol, rtol, maxevals, nrm, rho,fac,rootmeth)
         end
+
+        heappush!(c_segs, s1, Reverse)
+        heappush!(c_segs, s2, Reverse)
     end
 
     return I, E, numevals
 end
 
-function c_contrefine(s::S, f::F, r_segs::Vector{T}, c_segs::Vector{S}, I, E, numevals, x,w,gw,n, atol, rtol, maxevals, nrm) where {F, T, S}
+function c_contrefine(s::S, gx, fx, f::F, r_segs::Vector{T}, c_segs::Vector{S}, I, E, numevals, x,w,gw,n, atol, rtol, maxevals, nrm, rho,fac,rootmeth) where {F, T, S}
     mid = (s.a + s.b) / 2
     s1 = evalrule(f, s.a, mid, x,w,gw, nrm)
     s2 = evalrule(f, mid, s.b, x,w,gw, nrm)
-    if f isa InplaceIntegrand
-        I .= (I .- s.I) .+ s1.I .+ s2.I
-    else
-        I = (I - s.I) + s1.I + s2.I
-    end
+    I = (I - s.I) + s1.I + s2.I
     E = (E - s.E) + s1.E + s2.E
     numevals += 4n+2
 
     # handle type-unstable functions by converting to a wider type if needed
     Tj = promote_type(typeof(s1), promote_type(typeof(s2), S))
     if Tj !== S
-        return contadapt(f, r_segs, heappush!(heappush!(Vector{Tj}(c_segs), s1, Reverse), s2, Reverse),
-                     I, E, numevals, x,w,gw,n, atol, rtol, maxevals, nrm)
+        return contadapt(gx, fx, f, r_segs, heappush!(heappush!(Vector{Tj}(c_segs), s1, Reverse), s2, Reverse),
+                     I, E, numevals, x,w,gw,n, atol, rtol, maxevals, nrm, rho,fac,rootmeth)
     end
 
     heappush!(c_segs, s1, Reverse)
@@ -161,32 +136,17 @@ end
 
 # re-sum (paranoia about accumulated roundoff)
 function resum(f, r_segs, c_segs)
-    if f isa InplaceIntegrand
-        I = f.I .= isempty(r_segs) ? c_segs[1].I : (isempty(c_segs) ? r_segs[1].I : r_segs[1].I + c_segs[1].I)
-        E = isempty(r_segs) ? c_segs[1].E : (isempty(c_segs) ? r_segs[1].E : r_segs[1].E + c_segs[1].E)
-        # sum the real segments
-        for i in 2:length(r_segs)
-            I .+= r_segs[i].I
-            E += r_segs[i].E
-        end
-        # sum the complex segments
-        for i in 2:length(c_segs)
-            I .+= c_segs[i].I
-            E += c_segs[i].E
-        end
-    else
-        I = isempty(r_segs) ? c_segs[1].I : (isempty(c_segs) ? r_segs[1].I : r_segs[1].I + c_segs[1].I)
-        E = isempty(r_segs) ? c_segs[1].E : (isempty(c_segs) ? r_segs[1].E : r_segs[1].E + c_segs[1].E)
-        # sum the real segments
-        for i in 2:length(r_segs)
-            I += r_segs[i].I
-            E += r_segs[i].E
-        end
-        # sum the complex segments
-        for i in 2:length(c_segs)
-            I += c_segs[i].I
-            E += c_segs[i].E
-        end
+    I = zero(ComplexF64) #isempty(r_segs) ? c_segs[1].I : (isempty(c_segs) ? r_segs[1].I : r_segs[1].I + c_segs[1].I)
+    E = zero(Float64) #isempty(r_segs) ? c_segs[1].E : (isempty(c_segs) ? r_segs[1].E : r_segs[1].E + c_segs[1].E)
+    # sum the real segments
+    for i in 1:length(r_segs)
+        I += r_segs[i].I
+        E += r_segs[i].E
+    end
+    # sum the complex segments
+    for i in 1:length(c_segs)
+        I += c_segs[i].I
+        E += c_segs[i].E
     end
     return (I, E)
 end
@@ -258,37 +218,8 @@ contquadgk(f, segs...; kws...) =
     contquadgk(f, promote(segs...)...; kws...)
 
 function contquadgk(f, segs::T...;
-       atol=nothing, rtol=nothing, maxevals=10^7, order=7, norm=norm, r_segbuf=nothing, c_segbuf=nothing) where {T<:Real}
+       atol=nothing, rtol=nothing, maxevals=10^7, order=7, norm=norm, r_segbuf=nothing, c_segbuf=nothing, rho=1.0, rootmeth=NewtonDeflation()) where {T<:Real}
     handle_infinities(f, segs) do f, s, _
-        do_contquadgk(f, s, order, atol, rtol, maxevals, norm, r_segbuf, c_segbuf)
+        do_contquadgk(f, s, order, atol, rtol, maxevals, norm, r_segbuf, c_segbuf, rho, rootmeth)
     end
-end
-
-"""
-    contquadgk!(f!, result, a,b,c...; rtol=sqrt(eps), atol=0, maxevals=10^7, order=7, norm=norm)
-
-Like `quadgk`, but make use of in-place operations for array-valued integrands (or other mutable
-types supporting in-place operations).  In particular, there are two differences from `quadgk`:
-
-1. The function `f!` should be of the form `f!(y, x) = y .= f(x)`.  That is, it writes the
-   return value of the integand `f(x)` in-place into its first argument `y`.   (The return
-   value of `f!` is ignored.)
-
-2. Like `quadgk`, the return value is a tuple `(I,E)` of the estimated integral `I` and the
-   estimated error `E`.   However, in `quadgk!` the estimated integral is written in-place
-   into the `result` argument, so that `I === result`.
-
-Otherwise, the behavior is identical to `quadgk`.
-
-For integrands whose values are *small* arrays whose length is known at compile-time,
-it is usually more efficient to use `quadgk` and modify your integrand to return
-an `SVector` from the [StaticArrays.jl package](https://github.com/JuliaArrays/StaticArrays.jl).
-"""
-contquadgk!(f!, result, segs...; kws...) =
-    contquadgk!(f!, result, promote(segs...)...; kws...)
-
-function contquadgk!(f!, result, a::T,b::T,c::T...; atol=nothing, rtol=nothing, maxevals=10^7, order=7, norm=norm, r_segbuf=nothing, c_segbuf=nothing) where {T<:Real}
-    fx = result / oneunit(T) # pre-allocate array of correct type for integrand evaluations
-    f = InplaceIntegrand(f!, result, fx)
-    return contquadgk(f, a, b, c...; atol=atol, rtol=rtol, maxevals=maxevals, order=order, norm=norm, r_segbuf=r_segbuf, c_segbuf=c_segbuf)
 end
