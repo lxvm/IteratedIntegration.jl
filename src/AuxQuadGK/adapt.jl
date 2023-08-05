@@ -7,24 +7,17 @@
 # integration with the order-n Kronrod rule and weights of type Tw,
 # with absolute tolerance atol and relative tolerance rtol,
 # with maxevals an approximate maximum number of f evaluations.
-function do_auxquadgk(f::F, s::NTuple{N,T}, n, atol, rtol, maxevals, nrm, segbuf) where {T,N,F}
-    x,w,gw = cachedrule(T,n)
-
+function do_auxquadgk(f::F, s, n, atol, rtol, maxevals, nrm, segbuf) where {F}
+    x,w,gw = cachedrule(eltype(s),n)
+    # unlike quadgk, s may be a ntuple or a vector and we try to maintain optimizations
+    N = length(s)
     @assert N ≥ 2
     if f isa BatchIntegrand
         segs = evalrules(f, s, x,w,gw, nrm)
     else
-        segs = ntuple(i -> evalrule(f, s[i], s[i+1], x,w,gw, nrm), Val(N-1))
+        segs = evalrules(f, s, x,w,gw, nrm)
     end
-    if f isa InplaceIntegrand
-        I = f.I .= segs[1].I
-        for i = 2:length(segs)
-            I .+= segs[i].I
-        end
-    else
-        I = sum(s -> s.I, segs)
-    end
-    E = sum(s -> s.E, segs)
+    I, E = resum(f, segs)
     numevals = (2n+1) * (N-1)
 
     # logic here is mainly to handle dimensionful quantities: we
@@ -116,8 +109,6 @@ function resum(f, segs)
     return (I, E)
 end
 
-
-
 # Gauss-Kronrod quadrature of f from a to b to c...
 
 """
@@ -188,10 +179,10 @@ instead pass a preallocated buffer allocated using `alloc_segbuf(...)` as the
 repeated allocation.
 """
 auxquadgk(f, segs...; kws...) =
-    auxquadgk(f, promote(segs...)...; kws...)
+    auxquadgk(f, promote(segs...); kws...)
 
-function auxquadgk(f, segs::T...;
-       atol=nothing, rtol=nothing, maxevals=10^7, order=7, norm=norm, segbuf=nothing) where {T}
+function auxquadgk(f, segs;
+       atol=nothing, rtol=nothing, maxevals=10^7, order=7, norm=norm, segbuf=nothing)
     handle_infinities(f, segs) do g, s, _
         do_auxquadgk(g, s, order, atol, rtol, maxevals, norm, segbuf)
     end
@@ -218,10 +209,10 @@ it is usually more efficient to use `quadgk` and modify your integrand to return
 an `SVector` from the [StaticArrays.jl package](https://github.com/JuliaArrays/StaticArrays.jl).
 """
 auxquadgk!(f!, result, segs...; kws...) =
-    auxquadgk!(f!, result, promote(segs...)...; kws...)
+    auxquadgk!(f!, result, promote(segs...); kws...)
 
-function auxquadgk!(f!, result, a::T,b::T,c::T...; atol=nothing, rtol=nothing, maxevals=10^7, order=7, norm=norm, segbuf=nothing) where {T}
-    fx = result / oneunit(T) # pre-allocate array of correct type for integrand evaluations
+function auxquadgk!(f!, result, segs; atol=nothing, rtol=nothing, maxevals=10^7, order=7, norm=norm, segbuf=nothing)
+    fx = result / oneunit(eltype(segs)) # pre-allocate array of correct type for integrand evaluations
     f = InplaceIntegrand(f!, result, fx)
-    return auxquadgk(f, a, b, c...; atol=atol, rtol=rtol, maxevals=maxevals, order=order, norm=norm, segbuf=segbuf)
+    return auxquadgk(f, segs; atol=atol, rtol=rtol, maxevals=maxevals, order=order, norm=norm, segbuf=segbuf)
 end

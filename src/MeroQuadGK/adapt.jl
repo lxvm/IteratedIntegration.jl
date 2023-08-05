@@ -134,9 +134,9 @@ instead pass a preallocated buffer allocated using `alloc_segbuf(...)` as the
 repeated allocation.
 """
 meroquadgk(f, segs...; kws...) =
-    meroquadgk(f, promote(segs...)...; kws...)
+    meroquadgk(f, promote(segs...); kws...)
 
-function meroquadgk(f, segs::T...;
+function meroquadgk(f, segs::T;
        atol=nothing, rtol=nothing, maxevals=10^7, order=7, norm=norm, segbuf=nothing, rho=1.0, rootmeth=NewtonDeflation()) where {T}
     handle_infinities(f, segs) do f, s, _
         do_meroquadgk(f, s, order, atol, rtol, maxevals, norm, segbuf, rho, rootmeth)

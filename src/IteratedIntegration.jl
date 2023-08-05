@@ -12,8 +12,8 @@ using LinearAlgebra
 
 using StaticArrays
 using FunctionWrappers: FunctionWrapper
-using QuadGK: alloc_segbuf
-
+using QuadGK: alloc_segbuf, quadgk_count, quadgk_print
+import QuadGK: quadgk
 
 export AbstractIteratedLimits
 include("definitions.jl")
@@ -21,35 +21,32 @@ include("definitions.jl")
 export CubicLimits, TetrahedralLimits, ProductLimits, TranslatedLimits, load_limits
 include("iterated_limits.jl")
 
-
-export auxquadgk, AuxValue
+export AuxValue
 include("AuxQuadGK/AuxQuadGK.jl")
 using .AuxQuadGK
 
-export meroquadgk
 include("MeroQuadGK/MeroQuadGK.jl")
 using .MeroQuadGK
 
-export contquadgk
 include("ContQuadGK/ContQuadGK.jl")
 using .ContQuadGK
 
-export nested_quad
 include("nested_quad.jl")
 
-for routine in (:nested_quad, :auxquadgk)
+export quadgk, quadgk_count, quadgk_print
+for routine in (:auxquadgk, :contquadgk, :meroquadgk, :nested_quad)
     routine_count = Symbol(routine, :_count)
     routine_print = Symbol(routine, :_print)
 
-    @eval export $routine_count, $routine_print
+    @eval export $routine, $routine_count, $routine_print
 
     @eval function $routine_count(f, args...; kwargs...)
-        numevals = Threads.Atomic{Int}(0)
+        numevals::Int = 0
         I, E = $routine(args...; kwargs...) do x
-            Threads.atomic_add!(numevals, 1)
+            numevals += 1
             return f(x)
         end
-        return (I, E, numevals[])
+        return (I, E, numevals)
     end
 
     @eval $routine_print(io::IO, f, args...; kws...) = $routine_count(args...; kws...) do x

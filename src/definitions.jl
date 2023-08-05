@@ -16,9 +16,14 @@ abstract type AbstractIteratedLimits{d,T<:Number} end
 
 Base.ndims(::AbstractIteratedLimits{d}) where {d} = d
 Base.eltype(::Type{<:AbstractIteratedLimits{d,T}}) where {d,T} = T
-function iterate(::AbstractIteratedLimits{d}, v::Val{dim}=Val(d)) where {d,dim}
-    dim === 1 && return nothing
-    return (v, Val(dim-1))
+
+limit_iterate(l::AbstractIteratedLimits) = segments(l, ndims(l)), l, ()
+function limit_iterate(l::AbstractIteratedLimits, state, x)
+    lx = fixandeliminate(l, x, Val(ndims(l)))
+    return segments(lx, ndims(lx)), lx, (x, state...)
+end
+function limit_iterate(::AbstractIteratedLimits{1}, state, x)
+    return SVector(promote(x, state...))
 end
 
 """
@@ -41,3 +46,8 @@ Fix the outermost variable of integration and return the inner limits.
     >= 1
 """
 function fixandeliminate end
+
+# we pass in segs that may be of variable length, but quadgk inference is bad in that case.
+# auxquadgk should be able to handle both efficiently
+quadgk(f, segs::NTuple; kws...) = quadgk(f, segs...; kws...)
+quadgk(f, segs::AbstractVector; kws...) = quadgk(f, segs...; kws...)

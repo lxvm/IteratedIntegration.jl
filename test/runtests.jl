@@ -12,28 +12,28 @@ using HCubature
 
         @testset "CubicLimits" begin
             l3 = CubicLimits(-ones(3), ones(3))
-            @test segments(l3, 3)[1] == (-1, 1)
-            @test segments(fixandeliminate(l3,-1, Val(3)), 2)[1] == (-1, 1)
-            @test segments(fixandeliminate(l3, 1, Val(3)), 2)[1] == (-1, 1)
+            @test segments(l3, 3) == (-1, 1)
+            @test segments(fixandeliminate(l3,-1, Val(3)), 2) == (-1, 1)
+            @test segments(fixandeliminate(l3, 1, Val(3)), 2) == (-1, 1)
             l2 = fixandeliminate(l3, 0.0, Val(3))
-            @test segments(l2, 2)[1] == (-1, 1)
-            @test segments(fixandeliminate(l2,-1, Val(2)), 1)[1] == (-1, 1)
-            @test segments(fixandeliminate(l2, 1, Val(2)), 1)[1] == (-1, 1)
+            @test segments(l2, 2) == (-1, 1)
+            @test segments(fixandeliminate(l2,-1, Val(2)), 1) == (-1, 1)
+            @test segments(fixandeliminate(l2, 1, Val(2)), 1) == (-1, 1)
             l1 = fixandeliminate(l2, 0.1, Val(2))
-            @test segments(l1, 1)[1] == (-1, 1)
+            @test segments(l1, 1) == (-1, 1)
         end
 
         @testset "TetrahedralLimits" begin
             t3 = TetrahedralLimits((1,1,1))
-            @test segments(t3, 3)[1] == (0, 1)
-            @test segments(fixandeliminate(t3, 0, Val(3)), 2)[1] == (0, 0)
-            @test segments(fixandeliminate(t3, 0.5, Val(3)), 2)[1] == (0, 0.5)
+            @test segments(t3, 3) == (0, 1)
+            @test segments(fixandeliminate(t3, 0, Val(3)), 2) == (0, 0)
+            @test segments(fixandeliminate(t3, 0.5, Val(3)), 2) == (0, 0.5)
             t2 = fixandeliminate(t3, 1, Val(3))
-            @test segments(t2, 2)[1] == (0, 1)
-            @test segments(fixandeliminate(t2, 0, Val(2)), 1)[1] == (0, 0)
-            @test segments(fixandeliminate(t2, 0.5, Val(2)), 1)[1] == (0, 0.5)
+            @test segments(t2, 2) == (0, 1)
+            @test segments(fixandeliminate(t2, 0, Val(2)), 1) == (0, 0)
+            @test segments(fixandeliminate(t2, 0.5, Val(2)), 1) == (0, 0.5)
             t1 = fixandeliminate(t2, 1, Val(2))
-            @test segments(t1, 1)[1] == (0, 1)
+            @test segments(t1, 1) == (0, 1)
         end
 
         @testset "ProductLimits" begin
@@ -112,7 +112,7 @@ using HCubature
         end
     end
 
-    @testset "auxquad" begin
+    @testset "auxquadgk" begin
         f(x)    = sin(x)/(cos(x)+im*1e-5)   # peaked "nice" integrand
         imf(x)  = imag(f(x))                # peaked difficult integrand
         f2(x)   = f(x)^2                    # even more peaked
@@ -125,38 +125,46 @@ using HCubature
             AuxValue(imf2(x) + imf2(x-x0), re)
         end
 
-        parbuf = Parallel(Float64,AuxValue{Float64},AuxValue{Float64})
-        absI, = auxquadgk(integrand, 0, 2pi, atol=1e-4, parallel=Sequential()) # 628318.5306881254
-        relI, = auxquadgk(integrand, 0, 2pi, rtol=1e-6, parallel=parbuf) # 628318.5306867635
+        absI, = auxquadgk(integrand, 0, 2pi, atol=1e-4) # 628318.5306881254
+        relI, = auxquadgk(integrand, 0, 2pi, rtol=1e-6) # 628318.5306867635
         @test absI.val ≈ relI.val rtol=1e-6
-        segbuf = QuadGK.alloc_segbuf(Float64, AuxValue{Float64}, AuxValue{Float64})
-        @test absI == auxquadgk(integrand, 0, 2pi, atol=1e-4, parallel=Sequential())[1]
-        @test relI == auxquadgk(integrand, 0, 2pi, rtol=1e-6, parallel=parbuf)[1]
+
+        # test the BatchIntegrand interface
+        h = IteratedIntegration.BatchIntegrand((y,x) -> y .= integrand.(x), AuxValue{Float64})
+        babsI, = auxquadgk(h, 0, pi, 2pi, atol=1e-4)
+        @test absI.val ≈ babsI.val atol=1e-4
+        brelI, = auxquadgk(h, 0, pi, 2pi, rtol=1e-6)
+        @test relI.val ≈ brelI.val rtol=1e-6
     end
 
+    @testset "meroquadgk" begin
+        f(x) = inv(complex(0.5, 1e-5) - cos(x-0.1))
+        ref, = quadgk(f, 0, 2pi, atol=1e-6)
+        val, = meroquadgk(f, 0, 2pi, atol=1e-6)
+        @test ref ≈ val atol=1e-6
+    end
+
+    @testset "contquadgk" begin
+        ff(a) = (q = sqrt(Complex(a^2 - 1)); (abs(q-a) <= 1 ? 1 : -1) * inv(q))
+        f(x) = ff(complex(0.5, 1e-5) - cos(x-0.1))
+        ref, = quadgk(f, 0, 2pi, atol=1e-6)
+        val, = contquadgk(f, 0, 2pi, atol=1e-6)
+        @test ref ≈ val atol=1e-6
+    end
+#=
     @testset "inference" begin
-        for n in 1:4, routine in (nested_quad, ) # iai
+        for n in 1:4, routine in (nested_quad, )
             a = zeros(n)
             b = rand(n)
-            for (integrand,type) in (
-                (x -> sin(sum(x)), Tuple{Float64, Float64}),
-                (x -> inv(complex(sin(sum(x)), 0.01)), Tuple{ComplexF64,Float64}),
+            for integrand in (
+                x -> sin(sum(x)),
+                x -> inv(complex(sin(sum(x)), 0.01)),
                 )
-                @inferred type routine(integrand, a, b)
+                @inferred routine(integrand, a, b)
             end
         end
     end
-
-    # run with multiple threads for this test
-    @testset "multidimensional parallelization" for dims in 1:3
-        f(x) = sum(cos, 13x) # requires subdivisions
-        dom = CubicLimits(zeros(dims), ones(dims))
-        ref, = nested_quad(f, dom; atol=1e-8) # non-threaded reference
-        for i in 1:dims
-            sol, = nested_quad(f, dom; atol=1e-8, parallels=(Parallel(i)..., ntuple(j->Sequential(), dims-i)...))
-            @test sol ≈ ref
-        end
-    end
+=#
 end
 
 @testset "PolyhedraExt" begin

@@ -99,7 +99,8 @@ function evalrule(g::BatchIntegrand{F}, a,b, x,w,gw, nrm) where {F<:InplaceInteg
     return Segment(oftype(s, a), oftype(s, b), Ik_s, E)
 end
 
-function evalrules(f::BatchIntegrand{F}, s::NTuple{N}, x,w,gw, nrm) where {F,N}
+function evalrules(f::BatchIntegrand{F}, s, x,w,gw, nrm) where {F}
+    N = length(s)
     l = length(x)
     m = 2l-1    # evaluations per segment
     n = (N-1)*m # total evaluations
@@ -122,10 +123,16 @@ function evalrules(f::BatchIntegrand{F}, s::NTuple{N}, x,w,gw, nrm) where {F,N}
     end
     # ax = ntuple(_ -> (:), Val(ndims(v)-1))
     idx = CartesianIndices(Base.front(axes(f.y)))
-    return ntuple(Val(N-1)) do i
-        # g = BatchIntegrand(f.f!, view(f.y, ax..., (1+(i-1)*m):(i*m)), f.x, f.max_batch)
-        g = BatchIntegrand(f.f!, view(f.y, idx, (1+(i-1)*m):(i*m)), f.x, f.max_batch)
-        return evalrule(g, s[i], s[i+1], x,w,gw, nrm)
+    if s isa NTuple
+        return ntuple(Val(N-1)) do i
+            g = BatchIntegrand(f.f!, view(f.y, idx, (1+(i-1)*m):(i*m)), f.x, f.max_batch)
+            return evalrule(g, s[i], s[i+1], x,w,gw, nrm)
+        end
+    else
+        return map(1:N-1) do i
+            g = BatchIntegrand(f.f!, view(f.y, idx, (1+(i-1)*m):(i*m)), f.x, f.max_batch)
+            return evalrule(g, s[i], s[i+1], x,w,gw, nrm)
+        end
     end
 end
 
@@ -280,10 +287,10 @@ simultaneously. In particular, there are two differences from `quadgk`
    together, which can produce different results for integrands with multiple peaks when
    used together with relative tolerances. For an example see the manual
 """
-function auxquadgk(f::BatchIntegrand{F,Y,<:AbstractVector{Nothing}}, segs::T...; kws...) where {F,Y,T}
-    FT = float(T) # the gk points are floating-point
+function auxquadgk(f::BatchIntegrand{F,Y,<:AbstractVector{Nothing}}, segs; kws...) where {F,Y}
+    FT = float(eltype(segs)) # the gk points are floating-point
     g = BatchIntegrand(f.f!, f.y, similar(f.x, FT), f.max_batch)
-    return auxquadgk(g, segs...; kws...)
+    return auxquadgk(g, segs; kws...)
 end
 
 """
@@ -309,9 +316,9 @@ simultaneously. In particular, there are two differences from using `quadgk` wit
    [ElasticArrays.jl](https://github.com/JuliaArrays/ElasticArrays.jl) for this. Otherwise
    specialize `QuadGK.resizelastdim!(A::T, n)` for your array type `T`.
 """
-function auxquadgk!(f::BatchIntegrand, result, a::T,b::T,c::T...; atol=nothing, rtol=nothing, maxevals=10^7, order=7, norm=norm, segbuf=nothing) where {T}
-    fx = result / oneunit(T) # pre-allocate array of correct type for integrand evaluations
+function auxquadgk!(f::BatchIntegrand, result, segs; atol=nothing, rtol=nothing, maxevals=10^7, order=7, norm=norm, segbuf=nothing)
+    fx = result / oneunit(eltype(segs)) # pre-allocate array of correct type for integrand evaluations
     @assert Base.front(axes(f.y)) == axes(result)
     g = BatchIntegrand(InplaceIntegrand(f.f!, result, fx), f.y, f.x, f.max_batch)
-    return auxquadgk(g, a, b, c...; atol=atol, rtol=rtol, maxevals=maxevals, order=order, norm=norm, segbuf=segbuf)
+    return auxquadgk(g, segs; atol=atol, rtol=rtol, maxevals=maxevals, order=order, norm=norm, segbuf=segbuf)
 end

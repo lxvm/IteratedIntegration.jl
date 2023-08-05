@@ -3,10 +3,11 @@
 # integration with the order-n Kronrod rule and weights of type Tw,
 # with absolute tolerance atol and relative tolerance rtol,
 # with maxevals an approximate maximum number of f evaluations.
-function do_contquadgk(f::F, s::NTuple{N,T}, n, atol, rtol, maxevals, nrm, r_segbuf, c_segbuf, rho, rootmeth) where {T<:Real,N,F}
+function do_contquadgk(f::F, s, n, atol, rtol, maxevals, nrm, r_segbuf, c_segbuf, rho, rootmeth) where {F}
+    (T = eltype(s)) <: Real || throw(ArgumentError("Initial contour must be on the real axis"))
     x,w,gw = cachedrule(T,n)
     fac = cachedlu(T,n)
-
+    N = length(s)
     @assert N ≥ 2
     # TODO extend to arbitrary f by letting g::Real = inv∘norm∘f
     fx = Vector{ComplexF64}(undef, 2n+1) # this routine designed for scalar functions
@@ -215,10 +216,10 @@ instead pass a preallocated buffer allocated using `alloc_segbuf(...)` as the
 repeated allocation.
 """
 contquadgk(f, segs...; kws...) =
-    contquadgk(f, promote(segs...)...; kws...)
+    contquadgk(f, promote(segs...); kws...)
 
-function contquadgk(f, segs::T...;
-       atol=nothing, rtol=nothing, maxevals=10^7, order=7, norm=norm, r_segbuf=nothing, c_segbuf=nothing, rho=1.0, rootmeth=NewtonDeflation()) where {T<:Real}
+function contquadgk(f, segs;
+       atol=nothing, rtol=nothing, maxevals=10^7, order=7, norm=norm, r_segbuf=nothing, c_segbuf=nothing, rho=1.0, rootmeth=NewtonDeflation())
     handle_infinities(f, segs) do f, s, _
         do_contquadgk(f, s, order, atol, rtol, maxevals, norm, r_segbuf, c_segbuf, rho, rootmeth)
     end
