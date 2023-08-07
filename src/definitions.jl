@@ -26,6 +26,16 @@ function limit_iterate(::AbstractIteratedLimits{1}, state, x)
     return SVector(promote(x, state...))
 end
 
+# return a point inside the limits of integration that can be evaluated
+function interior_point(l::AbstractIteratedLimits)
+    a, b, = segments(l, ndims(l))
+    x = (a + b)/2
+    ndims(l) === 1 && return SVector{1,typeof(x)}(x)
+    lx = fixandeliminate(l, x, Val(ndims(l)))
+    return SVector{ndims(l),typeof(x)}((interior_point(lx)...,x))
+end
+
+
 """
     segments(::AbstractLimits, dim)
 

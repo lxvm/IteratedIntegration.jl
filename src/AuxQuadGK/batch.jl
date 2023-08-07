@@ -1,4 +1,3 @@
-
 """
     BatchIntegrand(f!, y::AbstractArray, x::AbstractVector, max_batch=typemax(Int))
 
