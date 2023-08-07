@@ -6,7 +6,7 @@ function applypolesub!(gvals::AbstractArray, ginvals::AbstractArray, a::Number,
 # Barnett 6/30/23
     @assert length(gvals)==length(ginvals)
     s = evalrule(ginvals, a,b, x,w,gw, nrm) # create Segment w/ plain GK ans for (a,b)
-    if b-a > maxpolesubint           # save a few pole-sub considerations? no
+    if abs(b-a) > maxpolesubint           # save a few pole-sub considerations? no
         return s
     end
     # now work in local coords wrt std seg [-1,1]...

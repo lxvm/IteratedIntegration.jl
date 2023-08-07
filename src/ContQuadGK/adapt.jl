@@ -4,7 +4,7 @@
 # with absolute tolerance atol and relative tolerance rtol,
 # with maxevals an approximate maximum number of f evaluations.
 function do_contquadgk(f::F, s, n, atol, rtol, maxevals, nrm, r_segbuf, c_segbuf, rho, rootmeth) where {F}
-    (T = eltype(s)) <: Real || throw(ArgumentError("Initial contour must be on the real axis"))
+    T = eltype(s)
     x,w,gw = cachedrule(T,n)
     fac = cachedlu(T,n)
     N = length(s)
@@ -90,9 +90,9 @@ function r_contrefine(s::T, gx, fx, f::F, r_segs::Vector{T}, c_segs::Vector{S}, 
         heappush!(r_segs, s1, Reverse)
         heappush!(r_segs, s2, Reverse)
     else
-        # bump contour into complex plane
-        def = (s.b - s.a) / 2
-        mid = complex((s.a + s.b) / 2, s.nabove == 0 ? def : -def)
+        # bump contour into complex plane (normal to real axis (or segment?))
+        def = complex((s.b - s.a) / 2)
+        mid = complex((s.a + s.b) / 2) + (s.nabove == 0 ? im*def : -im*def)
         s1 = evalrule(f, complex(s.a), mid, x,w,gw, nrm)
         s2 = evalrule(f, mid, complex(s.b), x,w,gw, nrm)
         numevals += 4n+2
