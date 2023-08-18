@@ -71,7 +71,7 @@ using DataStructures, LinearAlgebra
 import Base.Order.Reverse
 import QuadGK: evalrule, handle_infinities
 
-export auxquadgk, auxquadgk!, AuxValue, BatchIntegrand
+export auxquadgk, auxquadgk!, AuxValue#, BatchIntegrand
 
 include("auxiliary.jl")
 include("evalrules.jl")

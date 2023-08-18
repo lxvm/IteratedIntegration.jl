@@ -38,23 +38,25 @@ for routine in (:auxquadgk, :auxquadgk!, :contquadgk, :meroquadgk, :nested_quad)
     routine_count = Symbol(routine, :_count)
     routine_print = Symbol(routine, :_print)
 
-    @eval export $routine, $routine_count, $routine_print
+    @eval begin
+        export $routine, $routine_count, $routine_print
 
-    @eval function $routine_count(f, args...; kwargs...)
-        numevals::Int = 0
-        I, E = $routine(args...; kwargs...) do x
-            numevals += 1
-            return f(x)
+        function $routine_count(f, args...; kwargs...)
+            numevals::Int = 0
+            I, E = $routine(args...; kwargs...) do x
+                numevals += 1
+                return f(x)
+            end
+            return (I, E, numevals)
         end
-        return (I, E, numevals)
-    end
 
-    @eval $routine_print(io::IO, f, args...; kws...) = $routine_count(args...; kws...) do x
-        y = f(x)
-        println(io, "f(", x, ") = ", y)
-        y
+        $routine_print(io::IO, f, args...; kws...) = $routine_count(args...; kws...) do x
+            y = f(x)
+            println(io, "f(", x, ") = ", y)
+            y
+        end
+        $routine_print(f, args...; kws...) = $routine_print(stdout, f, args...; kws...)
     end
-    @eval $routine_print(f, args...; kws...) = $routine_print(stdout, f, args...; kws...)
 end
 
 end
