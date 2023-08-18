@@ -130,7 +130,7 @@ using HCubature
         @test absI.val ≈ relI.val rtol=1e-6
 
         # test the BatchIntegrand interface
-        h = IteratedIntegration.BatchIntegrand((y,x) -> y .= integrand.(x), AuxValue{Float64})
+        h = IteratedIntegration.AuxQuadGK.BatchIntegrand((y,x) -> y .= integrand.(x), AuxValue{Float64})
         babsI, = auxquadgk(h, 0, pi, 2pi, atol=1e-4)
         @test absI.val ≈ babsI.val atol=1e-4
         brelI, = auxquadgk(h, 0, pi, 2pi, rtol=1e-6)
@@ -165,6 +165,13 @@ using HCubature
         end
     end
 =#
+    @testset "nested_quad" begin
+        for dims in 2:4
+            l = TetrahedralLimits(ntuple(n -> 1.0, dims))
+            vol, = nested_quad(x -> 1.0, l)
+            @test vol ≈ 1/factorial(dims)
+        end
+    end
 end
 
 @testset "PolyhedraExt" begin
