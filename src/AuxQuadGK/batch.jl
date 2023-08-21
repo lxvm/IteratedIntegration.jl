@@ -158,7 +158,7 @@ function auxrefine(f::BatchIntegrand{F}, segs::Vector{T}, I, E, numevals, x,w,gw
         nsegs += 1
         tol += s.E
         numevals += 2m
-        len > nsegs && DataStructures.percolate_down!(segs, 1, y, Reverse, len-nsegs)
+        len > nsegs && DataStructures.percolate_down!(segs, 1, y, ord, len-nsegs)
     end
 
     resize!(f.x, 2m*nsegs)
@@ -204,7 +204,7 @@ function auxrefine(f::BatchIntegrand{F}, segs::Vector{T}, I, E, numevals, x,w,gw
         segs[len+i]   = s2
     end
     for i in 1:2nsegs
-        DataStructures.percolate_up!(segs, len-nsegs+i, Reverse)
+        DataStructures.percolate_up!(segs, len-nsegs+i, ord)
     end
 
     return I, E, numevals

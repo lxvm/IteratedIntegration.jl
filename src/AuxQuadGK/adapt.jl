@@ -37,9 +37,10 @@ function do_auxquadgk(f::F, s, n, atol, rtol, maxevals, nrm, segbuf) where {F}
     for ord in eachorder(I)
         heapify!(segheap, ord)
         segheap = auxadapt(f, segheap, I, E, numevals, x,w,gw,n, atol_, rtol_, maxevals, nrm, ord)
+        I, E = resum(f, segheap)
         (E ≤ atol_ || E ≤ rtol_ * nrm(I) || numevals ≥ maxevals) && break
     end
-    return resum(f, segheap)
+    return (I, E)
 end
 
 # internal routine to perform the h-adaptive refinement of the integration segments (segs)
@@ -56,7 +57,7 @@ end
 
 # internal routine to refine the segment with largest error
 function auxrefine(f::F, segs::Vector{T}, I, E, numevals, x,w,gw,n, tol, atol, rtol, maxevals, nrm, ord) where {F, T}
-    s = heappop!(segs, Reverse)
+    s = heappop!(segs, ord)
     mid = (s.a + s.b) / 2
     s1 = evalrule(f, s.a, mid, x,w,gw, nrm)
     s2 = evalrule(f, mid, s.b, x,w,gw, nrm)
