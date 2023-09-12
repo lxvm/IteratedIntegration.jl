@@ -57,35 +57,56 @@ end
 
 # internal routine to refine the segment with largest error
 function auxrefine(f::F, segs::Vector{T}, I, E, numevals, x,w,gw,n, tol, atol, rtol, maxevals, nrm, ord) where {F, T}
-    s = heappop!(segs, ord)
-    mid = (s.a + s.b) / 2
-    s1 = evalrule(f, s.a, mid, x,w,gw, nrm)
-    s2 = evalrule(f, mid, s.b, x,w,gw, nrm)
-    if f isa InplaceIntegrand
-        I .= (I .- s.I) .+ s1.I .+ s2.I
-    else
-        I = (I - s.I) + s1.I + s2.I
-    end
-    E = (E - s.E) + s1.E + s2.E
-    numevals += 4n+2
+    nsegs = 0
+    len = length(segs)
+    l = length(x)
+    m = 2l-1 # == 2n+1
 
-    # handle type-unstable functions by converting to a wider type if needed
-    Tj = promote_type(typeof(s1), promote_type(typeof(s2), T))
-    if Tj !== T
-        return auxadapt(f, heappush!(heappush!(Vector{Tj}(segs), s1, ord), s2, ord),
-                     I, E, numevals, x,w,gw,n, atol, rtol, maxevals, nrm, ord)
-    end
-
-    # continue bisecting if the remaining error surpasses current tolerance
-    tol += s1.E + s2.E
-    if Base.Order.lt(ord, E, tol)
-        next = auxrefine(f, segs, I,E, numevals, x, w,gw,n, tol, atol, rtol, maxevals, nrm, ord)
-        next isa Vector && return heappush!(heappush!(next, s1, ord), s2, ord)
-        I, E, numevals = next
+    # collect as many segments that will have to be evaluated for the current tolerance
+    # while staying under maxevals
+    while len > nsegs && Base.Order.lt(ord, E, tol) && numevals < maxevals
+        # same as heappop!, but moves segments to end of heap/vector to avoid allocations
+        s = segs[1]
+        y = segs[len-nsegs]
+        segs[len-nsegs] = s
+        nsegs += 1
+        tol += s.E
+        numevals += 2m
+        len > nsegs && DataStructures.percolate_down!(segs, 1, y, ord, len-nsegs)
     end
 
-    heappush!(segs, s1, ord)
-    heappush!(segs, s2, ord)
+    resize!(segs, len+nsegs)
+    for i in 1:nsegs
+        s = segs[len-i+1]
+        mid = (s.a + s.b)/2
+        s1 = evalrule(f, s.a, mid, x,w,gw, nrm)
+        s2 = evalrule(f, mid, s.b, x,w,gw, nrm)
+        if f isa InplaceIntegrand
+            I .= (I .- s.I) .+ s1.I .+ s2.I
+        else
+            I = (I - s.I) + s1.I + s2.I
+        end
+        E = (E - s.E) + s1.E + s2.E
+
+        Tj = promote_type(typeof(s1), promote_type(typeof(s2), T))
+        if Tj !== T
+            newsegs = Vector{Tj}(segs)
+            newsegs[len-i+1] = s1
+            newsegs[len+i]   = s2
+            resize!(newsegs, len+i)
+            for j in 1:2i
+                DataStructures.percolate_up!(newsegs, len-i+j, ord)
+            end
+            return auxadapt(f, newsegs,
+                         I, E, numevals, x,w,gw,n, atol, rtol, maxevals, nrm, ord)
+        end
+
+        segs[len-i+1] = s1
+        segs[len+i]   = s2
+    end
+    for i in 1:2nsegs
+        DataStructures.percolate_up!(segs, len-nsegs+i, ord)
+    end
 
     return I, E, numevals
 end
