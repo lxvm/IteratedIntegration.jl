@@ -11,8 +11,7 @@ using LinearAlgebra
 
 using StaticArrays
 using FunctionWrappers: FunctionWrapper
-using QuadGK: alloc_segbuf
-import QuadGK
+using QuadGK: alloc_segbuf, quadgk, quadgk_count, quadgk_print
 
 export AbstractIteratedLimits
 include("definitions.jl")
@@ -32,7 +31,8 @@ using .ContQuadGK
 
 include("nested_quad.jl")
 
-for routine in (:quadgk, :auxquadgk, :auxquadgk!, :contquadgk, :meroquadgk, :nested_quad)
+export quadgk, quadgk_count, quadgk_print
+for routine in (:auxquadgk, :auxquadgk!, :contquadgk, :meroquadgk, :nested_quad)
     routine_count = Symbol(routine, :_count)
     routine_print = Symbol(routine, :_print)
 

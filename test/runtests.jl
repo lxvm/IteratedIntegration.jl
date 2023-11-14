@@ -4,6 +4,7 @@ using Polyhedra: polyhedron, vrep, volume
 using IteratedIntegration
 using IteratedIntegration: fixandeliminate, segments
 using HCubature
+using QuadGK
 
 using Aqua
 

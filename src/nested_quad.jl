@@ -92,7 +92,7 @@ order determined by `l` to obtain the multi-dimensional integral.
 """
 nested_quad(f, a, b; kwargs...) = nested_quad(f, CubicLimits(a, b); kwargs...)
 function nested_quad(f::F, l::L; routine=auxquadgk, routines=nothing, kwargs...) where {F,d,T,L<:AbstractIteratedLimits{d,T}}
-    routines_ = routines === nothing ? ntuple(i -> routine, Val(d)) : routines
+    routines_ = routines === nothing ? ntuple(i -> routine isa typeof(quadgk) ? myquadgk : routine, Val(d)) : map(r -> r isa typeof(quadgk) ? myquadgk : r, routines)
     kwargs_   = routines === nothing ? ntuple(i -> deepcopy(NamedTuple(kwargs)),  Val(d)) : nt_to_tup(NamedTuple(kwargs), Val(d))
     nest = make_nest(f, l, routines_, kwargs_)
     return nest()
