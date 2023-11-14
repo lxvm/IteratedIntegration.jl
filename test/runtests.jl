@@ -3,7 +3,6 @@ using Test
 using Polyhedra: polyhedron, vrep, volume
 using IteratedIntegration
 using IteratedIntegration: fixandeliminate, segments
-using QuadGK
 using HCubature
 
 using Aqua

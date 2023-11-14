@@ -7,7 +7,7 @@ import QuadGK: evalrule
 
 # use 2 heaps, one real and one complex
 
-export contquadgk, contquadgk!
+export contquadgk
 
 include("roots.jl")
 include("evalrule.jl")

@@ -3,9 +3,10 @@
 # integration with the order-n Kronrod rule and weights of type Tw,
 # with absolute tolerance atol and relative tolerance rtol,
 # with maxevals an approximate maximum number of f evaluations.
-function do_meroquadgk(f::F, s::NTuple{N,T}, n, atol, rtol, maxevals, nrm, segbuf, rho, rootmeth) where {T,N,F}
-    x,w,gw = cachedrule(T,n)
-    fac = cachedlu(T,n)
+function do_meroquadgk(f::F, s, n, atol, rtol, maxevals, nrm, segbuf, rho, rootmeth) where {F}
+    x,w,gw = cachedrule(eltype(s),n)
+    fac = cachedlu(eltype(s),n)
+    N = length(s)
     @assert N ≥ 2
     fx = Vector{ComplexF64}(undef, 2n+1) # this routine designed for scalar functions
     gx = similar(fx)

@@ -59,5 +59,6 @@ function fixandeliminate end
 
 # we pass in segs that may be of variable length, but quadgk inference is bad in that case.
 # auxquadgk should be able to handle both efficiently
-quadgk(f, segs::NTuple; kws...) = quadgk(f, segs...; kws...)
-quadgk(f, segs::AbstractVector; kws...) = quadgk(f, segs...; kws...)
+quadgk(f, segs::NTuple; kws...) = QuadGK.quadgk(f, segs...; kws...)
+quadgk(f, segs::AbstractVector; kws...) = QuadGK.quadgk(f, segs...; kws...)
+quadgk(args...; kws...) = QuadGK.quadgk(args...; kws...)

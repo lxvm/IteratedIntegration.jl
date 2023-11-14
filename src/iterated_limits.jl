@@ -13,9 +13,10 @@ function CubicLimits(a::SVector{d,A}, b::SVector{d,B}) where {d,A<:Number,B<:Num
     T = promote_type(A, B)
     return CubicLimits{d,T}(convert(SVector{d,T}, a), convert(SVector{d,T},b))
 end
-function CubicLimits(a::NTuple{d,A}, b::NTuple{d,B}) where {d,A,B}
-    return CubicLimits(SVector{d,A}(a), SVector{d,B}(b))
+function CubicLimits(a::NTuple{d}, b::NTuple{d}) where {d}
+    return CubicLimits(SVector{d,eltype(a)}(a), SVector{d,eltype(b)}(b))
 end
+CubicLimits(::Tuple{}, ::Tuple{}) = error("0-d cube not possible")
 CubicLimits(a, b) = CubicLimits(promote(a...), promote(b...))
 
 function fixandeliminate(c::CubicLimits{d,T}, _, ::Val{dim}) where {d,T,dim}
@@ -42,8 +43,9 @@ struct TetrahedralLimits{d,T,A} <: AbstractIteratedLimits{d,T}
     s::T
     TetrahedralLimits{d,T}(a::A, s::T) where {d,T,A<:NTuple{d,T}} = new{d,T,A}(a, s)
 end
-function TetrahedralLimits(a::NTuple{d,T}) where {d,T}
-    return TetrahedralLimits{d,float(T)}(ntuple(n -> float(a[n]), Val{d}()), one(float(T)))
+TetrahedralLimits(::Tuple{}) = error("0-d simplex not possible")
+function TetrahedralLimits(a::NTuple{d}) where {d}
+    return TetrahedralLimits{d,float(eltype(a))}(ntuple(n -> float(a[n]), Val{d}()), one(float(eltype(a))))
 end
 TetrahedralLimits(a::Tuple) = TetrahedralLimits(promote(a...))
 TetrahedralLimits(a::AbstractVector) = TetrahedralLimits(Tuple(a))
