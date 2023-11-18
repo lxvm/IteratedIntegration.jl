@@ -8,7 +8,7 @@ using QuadGK
 
 using Aqua
 
-Aqua.test_all(IteratedIntegration, project_toml_formatting=false)
+Aqua.test_all(IteratedIntegration)
 
 @testset "IteratedIntegration" begin
     # TODO: check that segments & fixandeliminate work, and that volume integrates correctly
