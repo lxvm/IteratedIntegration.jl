@@ -139,6 +139,16 @@ Aqua.test_all(IteratedIntegration)
         @test absI.val ≈ babsI.val atol=1e-4
         brelI, = auxquadgk(h, 0, pi, 2pi, rtol=1e-6)
         @test relI.val ≈ brelI.val rtol=1e-6
+
+        # integrand with mixed value and auxiliary types
+        function integrand2(x)
+            AuxValue(imf2(x) + imf2(x-x0), f2(x) + f2(x-x0))
+        end
+
+        absI, = auxquadgk(integrand2, 0, 2pi, atol=1e-4) # 628318.5306881254
+        relI, = auxquadgk(integrand2, 0, 2pi, rtol=1e-6) # 628318.5306867635
+        @test absI.val ≈ relI.val rtol=1e-6
+
     end
 
     @testset "meroquadgk" begin
