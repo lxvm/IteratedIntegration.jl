@@ -1,11 +1,11 @@
-struct AuxValue{T}
+struct AuxValue{T,A}
     val::T
-    aux::T
+    aux::A
 end
 
 for op in (:zero, :one, :oneunit)
     @eval Base.$op(a::AuxValue) = AuxValue($op(a.val), $op(a.aux))
-    @eval Base.$op(::Type{AuxValue{T}}) where {T} = AuxValue($op(T), $op(T))
+    @eval Base.$op(::Type{AuxValue{T,A}}) where {T,A} = AuxValue($op(T), $op(A))
 end
 
 struct KeyOrdering{T<:Base.Order.Ordering} <: Base.Order.Ordering
@@ -19,13 +19,13 @@ Base.Order.lt(o::KeyOrdering, a::AuxValue, b::Number) =
 Base.Order.lt(o::KeyOrdering, a::T, b::T) where {T<:AuxValue} =
     Base.Order.lt(o.o, getproperty(a, o.k), getproperty(b, o.k))
 
-const IntegrandsSegment{TI,TE} = Segment{<:Any,<:AuxValue{TI},<:AuxValue{TE}}
+const AuxSegment = Segment{<:Any,<:AuxValue,<:AuxValue}
 
-Base.Order.lt(o::KeyOrdering, a::Number, b::IntegrandsSegment) =
+Base.Order.lt(o::KeyOrdering, a::Number, b::AuxSegment) =
     Base.Order.lt(o, a, b.E)
-Base.Order.lt(o::KeyOrdering, a::IntegrandsSegment, b::Number) =
+Base.Order.lt(o::KeyOrdering, a::AuxSegment, b::Number) =
     Base.Order.lt(o, a.E, b)
-Base.Order.lt(o::KeyOrdering, a::T, b::T) where {T<:IntegrandsSegment} =
+Base.Order.lt(o::KeyOrdering, a::T, b::T) where {T<:AuxSegment} =
     Base.Order.lt(o, a.E, b.E)
 
 # first refine the auxiliary, then the true value
@@ -33,8 +33,9 @@ eachorder(::AuxValue) = (KeyOrdering(Reverse, :aux), KeyOrdering(Reverse, :val))
 eachorder(::Any) = (Reverse,)   # fallback to normal quadgk ordering for other types
 
 LinearAlgebra.norm(a::AuxValue) = AuxValue(norm(a.val), norm(a.aux))
+# we treat AuxValue like a view into just that value part
 Base.size(a::AuxValue) = size(a.val)
-Base.eltype(::Type{AuxValue{T}}) where T = T
+Base.eltype(::Type{AuxValue{T,A}}) where {T,A} = eltype(T)
 
 Base.:+(a::AuxValue, b::AuxValue) = AuxValue(a.val+b.val, a.aux+b.aux)
 Base.:-(a::AuxValue, b::AuxValue) = AuxValue(a.val-b.val, a.aux-b.aux)
