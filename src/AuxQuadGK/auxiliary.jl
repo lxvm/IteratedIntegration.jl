@@ -16,7 +16,7 @@ Base.Order.lt(o::KeyOrdering, a::Number, b::AuxValue) =
     Base.Order.lt(o.o, a, getproperty(b, o.k))
 Base.Order.lt(o::KeyOrdering, a::AuxValue, b::Number) =
     Base.Order.lt(o.o, getproperty(a, o.k), b)
-Base.Order.lt(o::KeyOrdering, a::T, b::T) where {T<:AuxValue} =
+Base.Order.lt(o::KeyOrdering, a::AuxValue, b::AuxValue) =
     Base.Order.lt(o.o, getproperty(a, o.k), getproperty(b, o.k))
 
 const AuxSegment = Segment{<:Any,<:AuxValue,<:AuxValue}
@@ -25,7 +25,7 @@ Base.Order.lt(o::KeyOrdering, a::Number, b::AuxSegment) =
     Base.Order.lt(o, a, b.E)
 Base.Order.lt(o::KeyOrdering, a::AuxSegment, b::Number) =
     Base.Order.lt(o, a.E, b)
-Base.Order.lt(o::KeyOrdering, a::T, b::T) where {T<:AuxSegment} =
+Base.Order.lt(o::KeyOrdering, a::AuxSegment, b::AuxSegment) =
     Base.Order.lt(o, a.E, b.E)
 
 # first refine the auxiliary, then the true value
