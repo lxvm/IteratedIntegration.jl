@@ -1,7 +1,7 @@
 name = "IteratedIntegration"
 uuid = "3ecdc4d6-ee34-4049-885a-a4e3631db98b"
 authors = ["lxvm <lorenzo@vanmunoz.com>"]
-version = "0.5.0"
+version = "0.5.1"
 
 [deps]
 DataStructures = "864edb3b-99cc-5e75-8d2d-829cb0a9cfe8"
