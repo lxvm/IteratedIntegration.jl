@@ -56,11 +56,11 @@ Base.isless(a, b::AuxValue) = isless(a, b.aux) && isless(a, b.val)
 Base.isless(a::Missing, b::AuxValue) = isless(a, b.aux) && isless(a, b.val)
 
 # strict error comparisons (De Morgan's Laws)
-Base.:>(a::AuxValue, b::AuxValue) = >(a.val, b) || >(a.aux, b)
+Base.:>(a::AuxValue, b::AuxValue) = >(a.val, b.val) || >(a.aux, b.aux)
 Base.:>(a::AuxValue, b) = >(a.val, b) || >(a.aux, b)
 Base.:>(a, b::AuxValue) = >(a, b.val) || >(a, b.aux)
 
-Base.:<(a::AuxValue, b::AuxValue) = <(a.val, b) && <(a.aux, b)
+Base.:<(a::AuxValue, b::AuxValue) = <(a.val, b.val) && <(a.aux, b.aux)
 Base.:<(a::AuxValue, b) = <(a.val, b) && <(a.aux, b)
 Base.:<(a::AuxValue, b::Missing) = <(a.val, b) && <(a.aux, b)
 Base.:<(a, b::AuxValue) = <(a, b.val) && <(a, b.aux)
