@@ -7,7 +7,7 @@
 # integration with the order-n Kronrod rule and weights of type Tw,
 # with absolute tolerance atol and relative tolerance rtol,
 # with maxevals an approximate maximum number of f evaluations.
-function do_auxquadgk(f::F, s, n, atol, rtol, maxevals, nrm, segbuf) where {F}
+function do_auxquadgk(f::F, s, n, atol, rtol, maxevals, nrm::M, segbuf) where {F, M}
     x,w,gw = cachedrule(eltype(s),n)
     # unlike quadgk, s may be a ntuple or a vector and we try to maintain optimizations
     N = length(s)
@@ -39,10 +39,11 @@ function do_auxquadgk(f::F, s, n, atol, rtol, maxevals, nrm, segbuf) where {F}
     return (I, E)
 end
 
-function evalrules(f::F, s, x,w,gw, nrm) where F
-    N = length(s) # Val can be important for performance
+function evalrules(f::F, s, x,w,gw, nrm::M) where {F, M}
+    # specializing on nrm can reduce compilation 25% in doubly nested integration
+    N = length(s) # Val can be crucial for performance
     g = i -> evalrule(f, s[i],s[i+1], x,w,gw, nrm)
-    return s isa Tuple ? ntuple(g, Val(N-1)) : map(g, 1:N-1)
+    return s isa Tuple ? ntuple(g, Val(length(s)-1)) : map(g, 1:N-1)
 end
 
 # internal routine to perform the h-adaptive refinement of the integration segments (segs)
