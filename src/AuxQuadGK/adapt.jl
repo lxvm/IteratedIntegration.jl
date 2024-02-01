@@ -12,11 +12,7 @@ function do_auxquadgk(f::F, s, n, atol, rtol, maxevals, nrm, segbuf) where {F}
     # unlike quadgk, s may be a ntuple or a vector and we try to maintain optimizations
     N = length(s)
     @assert N ≥ 2
-    if f isa BatchIntegrand
-        segs = evalrules(f, s, x,w,gw, nrm)
-    else
-        segs = evalrules(f, s, x,w,gw, nrm)
-    end
+    segs = evalrules(f, s, x,w,gw, nrm)
     I, E = resum(f, segs)
     numevals = (2n+1) * (N-1)
 
@@ -41,6 +37,12 @@ function do_auxquadgk(f::F, s, n, atol, rtol, maxevals, nrm, segbuf) where {F}
         (E ≤ atol_ || E ≤ rtol_ * nrm(I) || numevals ≥ maxevals) && break
     end
     return (I, E)
+end
+
+function evalrules(f::F, s, x,w,gw, nrm) where F
+    N = length(s) # Val can be important for performance
+    g = i -> evalrule(f, s[i],s[i+1], x,w,gw, nrm)
+    return s isa Tuple ? ntuple(g, Val(N-1)) : map(g, 1:N-1)
 end
 
 # internal routine to perform the h-adaptive refinement of the integration segments (segs)

@@ -74,7 +74,6 @@ import QuadGK: evalrule, handle_infinities
 export auxquadgk, auxquadgk!, AuxValue#, BatchIntegrand
 
 include("auxiliary.jl")
-include("evalrules.jl")
 include("adapt.jl")
 include("batch.jl")
 
