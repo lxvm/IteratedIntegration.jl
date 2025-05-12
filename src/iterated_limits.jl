@@ -25,7 +25,13 @@ end
 function segments(c::CubicLimits, dim)
     return (c.a[dim], c.b[dim])
 end
+function eliminate(c::CubicLimits{d,T}, dims) where {d,T}
+    length(dims) == d && return nothing
+    dimdiff = setdiff(1:d, dims)
+    return CubicLimits{d-length(dims),T}(c.a[dimdiff], c.b[dimdiff])
+end
 
+# TODO remove the s variable in TetrahedralLimits and just store the data of the tetrahedron
 """
     TetrahedralLimits(a::NTuple{d}) where d
 
@@ -40,22 +46,22 @@ A parametrization of the integration limits for a tetrahedron whose vertices are
 """
 struct TetrahedralLimits{d,T,A} <: AbstractIteratedLimits{d,T}
     a::A
-    s::T
-    TetrahedralLimits{d,T}(a::A, s::T) where {d,T,A<:NTuple{d,T}} = new{d,T,A}(a, s)
+    TetrahedralLimits(::Tuple{}) = error("0-d simplex not possible")
+    TetrahedralLimits(a::Tuple{T,Vararg{T,n}}) where {n,T} = new{n+1,T,typeof(a)}(a)
 end
-TetrahedralLimits(::Tuple{}) = error("0-d simplex not possible")
-function TetrahedralLimits(a::NTuple{d}) where {d}
-    return TetrahedralLimits{d,float(eltype(a))}(ntuple(n -> float(a[n]), Val{d}()), one(float(eltype(a))))
-end
-TetrahedralLimits(a::Tuple) = TetrahedralLimits(promote(a...))
-TetrahedralLimits(a::AbstractVector) = TetrahedralLimits(Tuple(a))
+# TetrahedralLimits(a::Tuple) = TetrahedralLimits(promote(a...))
+TetrahedralLimits(a::AbstractVector) = TetrahedralLimits(promote(a...))
 
 function fixandeliminate(t::TetrahedralLimits{d,T}, x, ::Val{d}) where {d,T}
-    return TetrahedralLimits{d-1,T}(Base.front(t.a), convert(T, x)/t.a[d])
+    return TetrahedralLimits(Base.front(t.a) .* (convert(float(T), x)/t.a[d]))
 end
 function segments(t::TetrahedralLimits{d,T}, dim) where {d,T}
-    @assert d == dim
-    return (zero(T), t.a[d]*t.s)
+    return (zero(T), t.a[dim])
+end
+function eliminate(t::TetrahedralLimits{d,T}, dims) where {d,T}
+    length(dims) == d && return nothing
+    dimdiff = setdiff(1:d, dims)
+    return TetrahedralLimits(t.a[dimdiff])
 end
 
 
@@ -125,10 +131,3 @@ end
 # RotatedLimits
 # AffineLimits
 
-"""
-    load_limits(obj)
-
-Load integration limits from an object. Serves as an api hook for package
-extensions with specialized limit types.
-"""
-function load_limits end

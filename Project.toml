@@ -5,7 +5,6 @@ version = "0.5.3"
 
 [deps]
 DataStructures = "864edb3b-99cc-5e75-8d2d-829cb0a9cfe8"
-FunctionWrappers = "069b7b12-0de2-55c6-9aab-29f3d0a68a2e"
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
 QuadGK = "1fd47b50-473d-5c70-9696-f719f8f3bcdc"
 StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
@@ -13,22 +12,18 @@ StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
 [compat]
 Aqua = "0.8"
 DataStructures = "0.18"
-FunctionWrappers = "1"
-HCubature = "1"
-LinearAlgebra = "1.9"
-Polyhedra = "0.6,0.7"
+LinearAlgebra = "1.11"
+Polyhedra = "0.6,0.7,0.8"
 QuadGK = "2.6"
 StaticArrays = "1"
-Test = "1.9"
-julia = "1.9"
+Test = "1.11"
+julia = "1.11"
 
 [extensions]
-PolyhedraExt = "Polyhedra"
+IteratedIntegrationPolyhedraExt = "Polyhedra"
 
 [extras]
 Aqua = "4c88cf16-eb10-579e-8560-4a9242c79595"
-HCubature = "19dc6840-f33b-545b-b366-655c7e3ffd49"
-QuadGK = "1fd47b50-473d-5c70-9696-f719f8f3bcdc"
 Polyhedra = "67491407-f73d-577b-9b50-8179a7c68029"
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 
@@ -36,4 +31,4 @@ Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 Polyhedra = "67491407-f73d-577b-9b50-8179a7c68029"
 
 [targets]
-test = ["Aqua", "Test", "HCubature", "Polyhedra", "QuadGK"]
+test = ["Aqua", "Test", "Polyhedra"]

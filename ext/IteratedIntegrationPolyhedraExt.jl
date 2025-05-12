@@ -1,7 +1,7 @@
-module PolyhedraExt
+module IteratedIntegrationPolyhedraExt
 
 using Polyhedra: Polyhedron, VRepresentation, vrep, points, fulldim, hasallrays, coefficient_type, Polyhedra
-import IteratedIntegration: fixandeliminate, segments, AbstractIteratedLimits, load_limits
+import IteratedIntegration: eliminate, fixandeliminate, segments, AbstractIteratedLimits, load_limits
 
 """
     PolyhedralLimits(::Polyhedron)
@@ -20,6 +20,14 @@ function fixandeliminate(l::PolyhedralLimits{d}, x, ::Val{dim}) where {d,dim}
     points(p)
     vrep(p) # compute/save the vrep
     return PolyhedralLimits{d-1}(p)
+end
+
+function eliminate(l::PolyhedralLimits{d}, dims) where {d}
+    d == length(dims) && return nothing
+    p = Polyhedra.eliminate(l.p, dims)
+    points(p)
+    vrep(p) # compute/save the vrep
+    return PolyhedralLimits{d-length(dims)}(p)
 end
 
 function segments_(v::VRepresentation, dim::Integer)

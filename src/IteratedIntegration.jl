@@ -10,51 +10,15 @@ module IteratedIntegration
 using LinearAlgebra
 
 using StaticArrays
-using FunctionWrappers: FunctionWrapper
-using QuadGK: alloc_segbuf, quadgk, quadgk_count, quadgk_print
+using QuadGK: quadgk
 
-export AbstractIteratedLimits
+public AbstractIteratedLimits, segments, fixandeliminate, eliminate, load_limits
 include("definitions.jl")
 
-export CubicLimits, TetrahedralLimits, ProductLimits, TranslatedLimits, load_limits
+public CubicLimits, TetrahedralLimits, ProductLimits, TranslatedLimits
 include("iterated_limits.jl")
 
-export AuxValue
-include("AuxQuadGK/AuxQuadGK.jl")
-using .AuxQuadGK
-
-include("MeroQuadGK/MeroQuadGK.jl")
-using .MeroQuadGK
-
-include("ContQuadGK/ContQuadGK.jl")
-using .ContQuadGK
-
-include("nested_quad.jl")
-
-export quadgk, quadgk_count, quadgk_print
-for routine in (:auxquadgk, :auxquadgk!, :contquadgk, :meroquadgk, :nested_quad)
-    routine_count = Symbol(routine, :_count)
-    routine_print = Symbol(routine, :_print)
-
-    @eval begin
-        export $routine, $routine_count, $routine_print
-
-        function $routine_count(f, args...; kwargs...)
-            numevals::Int = 0
-            I, E = $routine(args...; kwargs...) do x
-                numevals += 1
-                return f(x)
-            end
-            return (I, E, numevals)
-        end
-
-        $routine_print(io::IO, f, args...; kws...) = $routine_count(args...; kws...) do x
-            y = f(x)
-            println(io, "f(", x, ") = ", y)
-            y
-        end
-        $routine_print(f, args...; kws...) = $routine_print(stdout, f, args...; kws...)
-    end
-end
+public measure
+include("measure.jl")
 
 end
