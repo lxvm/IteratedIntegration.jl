@@ -1,9 +1,12 @@
 """
-A package for iterated adaptive integration (IAI) based on
-[`QuadGK.jl`](https://github.com/JuliaMath/QuadGK.jl). Its main exports are
-[`nested_quad`](@ref), a routine which performs multidimensional adaptive
-integration with nested `quadgk` calls and the [`AbstractIteratedLimits`](@ref)
-abstraction to evaluate parametrizations of limits of integration.
+A package for iterated integration (IAI). Its main exports are the
+[`AbstractIteratedLimits`](@ref) abstraction to evaluate parametrizations of limits of integration,
+[`segments`](@ref), a routine that returns the extrema of the domain in a given variable,
+[`fixandeliminate`](@ref), to fix a variable of integration and return limits of a reduced dimensionality,
+[`eliminate`](@ref), to eliminate or project out a variable of integration,
+and [`measure`](@ref) to compute the (hyper)volume of an integration domain.
+These functions and the exported domain types are sufficient for implementing iterated integration.
+Currently this package does not provide an iterated integration implementation.
 """
 module IteratedIntegration
 
