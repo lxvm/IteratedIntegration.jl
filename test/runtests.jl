@@ -1,5 +1,6 @@
 using Test
 
+using QuadGK: quadgk
 using Polyhedra: polyhedron, vrep, volume
 using IteratedIntegration
 using IteratedIntegration: fixandeliminate, segments, eliminate, measure, load_limits,
@@ -85,6 +86,6 @@ end
     pvol = volume(p)
 
     l = load_limits(p)
-    ivol, = measure(l)
+    ivol, = measure(quadgk, l)
     @test pvol ≈ ivol
 end

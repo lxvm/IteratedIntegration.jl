@@ -13,7 +13,6 @@ module IteratedIntegration
 using LinearAlgebra
 
 using StaticArrays
-using QuadGK: quadgk
 
 public AbstractIteratedLimits, segments, fixandeliminate, eliminate, load_limits
 include("definitions.jl")
