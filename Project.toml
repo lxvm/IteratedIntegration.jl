@@ -1,7 +1,7 @@
 name = "IteratedIntegration"
 uuid = "3ecdc4d6-ee34-4049-885a-a4e3631db98b"
 authors = ["lxvm <lorenzo@vanmunoz.com>"]
-version = "0.5.3"
+version = "0.6.0"
 
 [deps]
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
