@@ -17,15 +17,6 @@ abstract type AbstractIteratedLimits{d,T<:Number} end
 Base.ndims(::AbstractIteratedLimits{d}) where {d} = d
 Base.eltype(::Type{<:AbstractIteratedLimits{d,T}}) where {d,T} = T
 
-limit_iterate(l::AbstractIteratedLimits) = segments(l, ndims(l)), l, ()
-function limit_iterate(l::AbstractIteratedLimits, state, x)
-    lx = fixandeliminate(l, x, Val(ndims(l)))
-    return segments(lx, ndims(lx)), lx, (x, state...)
-end
-function limit_iterate(::AbstractIteratedLimits{1}, state, x)
-    return SVector(promote(x, state...))
-end
-
 # return a point inside the limits of integration that can be evaluated
 function interior_point(l::AbstractIteratedLimits)
     a, b, = segments(l, ndims(l))
@@ -45,9 +36,9 @@ They must be sorted.
 function segments end
 
 """
-    fixandeliminate(l::AbstractIteratedLimits, x)
+    fixandeliminate(l::AbstractIteratedLimits, x, [dim])
 
-Fix the outermost variable of integration and return the inner limits.
+Fix the outermost variable of integration, `dim`, and return the inner limits.
 
 !!! note "For developers"
     Realizations of type `T<:AbstractIteratedLimits` only have to implement a method
@@ -57,8 +48,19 @@ Fix the outermost variable of integration and return the inner limits.
 """
 function fixandeliminate end
 
-# we pass in segs that may be of variable length, but quadgk inference is bad in that case.
-# auxquadgk should be able to handle both efficiently
-myquadgk(f, segs::NTuple; kws...) = quadgk(f, segs...; kws...)
-myquadgk(f, segs::AbstractVector; kws...) = quadgk(f, segs...; kws...)
-myquadgk(args...; kws...) = quadgk(args...; kws...)
+
+"""
+    eliminate(l::AbstractIteratedLimits, dims)
+
+Project the integration domain on the dimensions other than `dims`
+"""
+function eliminate end
+
+
+"""
+    load_limits(obj)
+
+Load integration limits from an object. Serves as an api hook for package
+extensions with specialized limit types.
+"""
+function load_limits end

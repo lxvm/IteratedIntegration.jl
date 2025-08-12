@@ -18,9 +18,6 @@ makedocs(
     pages = [
         "Home" => "index.md",
         "Manual" => "methods.md",
-        "AuxQuadGK" => "auxquadgk.md",
-        "MeroQuadGK" => "meroquadgk.md",
-        "ContQuadGK" => "contquadgk.md",
     ],
 )
 

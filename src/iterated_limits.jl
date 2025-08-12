@@ -25,7 +25,13 @@ end
 function segments(c::CubicLimits, dim)
     return (c.a[dim], c.b[dim])
 end
+function eliminate(c::CubicLimits{d,T}, dims) where {d,T}
+    length(dims) == d && return nothing
+    dimdiff = setdiff(1:d, dims)
+    return CubicLimits{d-length(dims),T}(c.a[dimdiff], c.b[dimdiff])
+end
 
+# TODO remove the s variable in TetrahedralLimits and just store the data of the tetrahedron
 """
     TetrahedralLimits(a::NTuple{d}) where d
 
@@ -40,22 +46,25 @@ A parametrization of the integration limits for a tetrahedron whose vertices are
 """
 struct TetrahedralLimits{d,T,A} <: AbstractIteratedLimits{d,T}
     a::A
-    s::T
-    TetrahedralLimits{d,T}(a::A, s::T) where {d,T,A<:NTuple{d,T}} = new{d,T,A}(a, s)
+    TetrahedralLimits(::Tuple{}) = error("0-d simplex not possible")
+    TetrahedralLimits(a::Tuple{T,Vararg{T,n}}) where {n,T} = new{n+1,T,typeof(a)}(a)
 end
-TetrahedralLimits(::Tuple{}) = error("0-d simplex not possible")
-function TetrahedralLimits(a::NTuple{d}) where {d}
-    return TetrahedralLimits{d,float(eltype(a))}(ntuple(n -> float(a[n]), Val{d}()), one(float(eltype(a))))
-end
-TetrahedralLimits(a::Tuple) = TetrahedralLimits(promote(a...))
-TetrahedralLimits(a::AbstractVector) = TetrahedralLimits(Tuple(a))
+# TetrahedralLimits(a::Tuple) = TetrahedralLimits(promote(a...))
+TetrahedralLimits(a::AbstractVector) = TetrahedralLimits(promote(a...))
 
 function fixandeliminate(t::TetrahedralLimits{d,T}, x, ::Val{d}) where {d,T}
-    return TetrahedralLimits{d-1,T}(Base.front(t.a), convert(T, x)/t.a[d])
+    _x = convert(float(T), x)
+    # @assert zero(_x) <= _x <= t.a[d] " 0 <= $_x <= $(t.a[d])"
+    s = iszero(t.a[d]) ? one(_x*t.a[d]) : _x/t.a[d]
+    return TetrahedralLimits(Base.front(t.a) .* s)
 end
 function segments(t::TetrahedralLimits{d,T}, dim) where {d,T}
-    @assert d == dim
-    return (zero(T), t.a[d]*t.s)
+    return (zero(T), t.a[dim])
+end
+function eliminate(t::TetrahedralLimits{d,T}, dims) where {d,T}
+    length(dims) == d && return nothing
+    dimdiff = setdiff(1:d, dims)
+    return TetrahedralLimits(t.a[dimdiff])
 end
 
 
@@ -66,8 +75,7 @@ Construct a collection of limits which yields the first limit followed by the
 second, and so on. The inner limits are not allowed to depend on the outer ones.
 The outermost variable of integration should be placed first, i.e.
 ``\\int_{\\Omega} \\int_{\\Gamma}`` should be `ProductLimits(Ω, Γ)`.
-Although changing the order of the limits should not change the results, putting the
-shortest limits first may save `nested_quadgk` some work.
+Although changing the order of the limits should not change the results, it may affect the efficiency of integration.
 """
 struct ProductLimits{d,T,L} <: AbstractIteratedLimits{d,T}
     lims::L
@@ -89,11 +97,35 @@ function fixandeliminate(l::ProductLimits{d,T}, x, ::Val{d}) where {d,T}
 end
 
 function segments(l::ProductLimits{d}, dim) where {d}
-    @assert d==dim
-    lim = l.lims[1]
-    return segments(lim, ndims(lim))
+    @assert 0<dim<=d
+    rem = d-ndims(l.lims[1])
+    if dim > rem
+        segments(l.lims[1], dim-rem)
+    else
+        return segments(ProductLimits(l.lims[2:end]...), dim)
+    end
 end
 
+function eliminate(l::ProductLimits{d}, dim::Int) where {d}
+    @assert 0<dim<=d
+    rem = d-ndims(l.lims[1])
+    if dim > rem
+        out = eliminate(l.lims[1], dim-rem)
+        out === nothing && return (l.lims[2:end] isa Tuple{} ? nothing : ProductLimits(l.lims[2:end]...))
+        return ProductLimits(out, l.lims[2:end]...)
+    else
+        tmp = eliminate(ProductLimits(l.lims[2:end]...), dim)
+        tmp === nothing && return ProductLimits(l.lims[1])
+        return ProductLimits(l.lims[1], tmp.lims...)
+    end
+end
+function eliminate(l::ProductLimits, dims)
+    _dims = sort(dims)
+    for d in reverse(_dims)
+        l = eliminate(l, d)
+    end
+    return l
+end
 
 
 """
@@ -104,19 +136,24 @@ Returns the limits of `lims` translated by offsets in `t`.
 struct TranslatedLimits{d,C,L,T} <: AbstractIteratedLimits{d,C}
     l::L
     t::T
-    TranslatedLimits{d,C}(l::L, t::T) where {d,C,L<:AbstractIteratedLimits{d,C},T<:NTuple{d,C}} =
+    TranslatedLimits{d,C}(l::L, t::T) where {d,C,L<:AbstractIteratedLimits{d,C},T<:NTuple{d}} =
         new{d,C,L,T}(l, t)
 end
 function TranslatedLimits(l::AbstractIteratedLimits{d,C}, t::NTuple{d}) where {d,C}
-    return TranslatedLimits{d,C}(l, map(x -> convert(C, x), t))
+    return TranslatedLimits{d,C}(l, t)
 end
 
 function fixandeliminate(t::TranslatedLimits{d,C}, x, ::Val{dim}) where {d,C,dim}
-    l = fixandeliminate(t.l, convert(C, x) - t.t[ndims(t)], Val(dim))
-    return TranslatedLimits{d-1,C}(l, Base.front(t.t))
+    l = fixandeliminate(t.l, x - t.t[ndims(t)], Val(dim))
+    return TranslatedLimits{d-1,eltype(l)}(l, Base.front(t.t))
 end
 function segments(t::TranslatedLimits, dim)
     return map(x -> convert(eltype(t), x) + t.t[dim], segments(t.l, dim))
+end
+function eliminate(t::TranslatedLimits, dims)
+    out = eliminate(t.l, dims)
+    out === nothing && return nothing
+    return TranslatedLimits(out, t.t[setdiff(1:ndims(t), dims)])
 end
 
 # More ideas for limits
@@ -125,10 +162,3 @@ end
 # RotatedLimits
 # AffineLimits
 
-"""
-    load_limits(obj)
-
-Load integration limits from an object. Serves as an api hook for package
-extensions with specialized limit types.
-"""
-function load_limits end

@@ -28,10 +28,6 @@ IteratedIntegration.jl was written by [Lorenzo Van
 Muñoz](https://web.mit.edu/lxvm/www/), and is free/open-source software under
 the MIT license.
 
-The algorithms in `IteratedIntegration.MeroQuadGK` and
-`IteratedIntegration.ContQuadGK` were developed by [Alex
-Barnett](https://github.com/ahbarnett/bz-integral) and are distributed
-under the Apache 2.0 License
 
 ## Related packages
 - [QuadGK.jl](https://github.com/JuliaMath/QuadGK.jl)
